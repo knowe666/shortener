@@ -38,20 +38,20 @@ func isValidURL(url string) bool {
 }
 
 func (s *URLShortener) HandlePost(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Request")
 	// Проверяем метод
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusBadRequest)
 		return
 	}
-
+	fmt.Println("post method")
 	// Читаем тело запроса
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Failed to read body", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
-
+	fmt.Println("body " + string(body))
 	originalURL := strings.TrimSpace(string(body))
 	// if originalURL == "" {
 	// 	http.Error(w, "Empty URL", http.StatusBadRequest)
@@ -101,6 +101,7 @@ func (s *URLShortener) HandlePost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *URLShortener) HandleGet(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("get method")
 	// Проверяем метод
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusBadRequest)
