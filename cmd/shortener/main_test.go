@@ -7,11 +7,17 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	config "github.com/knowe666/shortener"
 )
 
 // TestNewURLShortener проверяет создание нового сервиса
 func TestNewURLShortener(t *testing.T) {
-	shortener := NewURLShortener()
+	testConfig := &config.Config{
+		ServerAddress: "localhost:8080",
+		BaseURL:       "http://localhost:8080",
+	}
+	shortener := NewURLShortener(testConfig)
 
 	if shortener.urls == nil {
 		t.Error("urls map should be initialized")
@@ -80,7 +86,11 @@ func TestIsValidURL(t *testing.T) {
 
 // TestHandlePost_ValidURLs проверяет успешное создание коротких ссылок
 func TestHandlePost_ValidURLs(t *testing.T) {
-	shortener := NewURLShortener()
+	testConfig := &config.Config{
+		ServerAddress: "localhost:8080",
+		BaseURL:       "http://localhost:8080",
+	}
+	shortener := NewURLShortener(testConfig)
 
 	tests := []struct {
 		name       string
@@ -127,7 +137,11 @@ func TestHandlePost_ValidURLs(t *testing.T) {
 
 // TestHandlePost_Caching проверяет, что одинаковые URL возвращают один и тот же короткий ID
 func TestHandlePost_Caching(t *testing.T) {
-	shortener := NewURLShortener()
+	testConfig := &config.Config{
+		ServerAddress: "localhost:8080",
+		BaseURL:       "http://localhost:8080",
+	}
+	shortener := NewURLShortener(testConfig)
 	url := "https://example.com"
 
 	// Первый запрос
@@ -153,7 +167,11 @@ func TestHandlePost_Caching(t *testing.T) {
 
 // TestHandlePost_Concurrency проверяет работу под нагрузкой
 func TestHandlePost_Concurrency(t *testing.T) {
-	shortener := NewURLShortener()
+	testConfig := &config.Config{
+		ServerAddress: "localhost:8080",
+		BaseURL:       "http://localhost:8080",
+	}
+	shortener := NewURLShortener(testConfig)
 
 	var wg sync.WaitGroup
 	urls := []string{
@@ -199,7 +217,11 @@ func TestHandlePost_Concurrency(t *testing.T) {
 
 // TestHandleGet_WithValidID проверяет успешное перенаправление по короткому ID
 func TestHandleGet_WithValidID(t *testing.T) {
-	shortener := NewURLShortener()
+	testConfig := &config.Config{
+		ServerAddress: "localhost:8080",
+		BaseURL:       "http://localhost:8080",
+	}
+	shortener := NewURLShortener(testConfig)
 	originalURL := "https://example.com"
 	shortID := "abc12345"
 
@@ -229,7 +251,11 @@ func TestHandleGet_WithValidID(t *testing.T) {
 
 // TestHandleGet_MissingID проверяет обработку запроса без ID
 func TestHandleGet_MissingID(t *testing.T) {
-	shortener := NewURLShortener()
+	testConfig := &config.Config{
+		ServerAddress: "localhost:8080",
+		BaseURL:       "http://localhost:8080",
+	}
+	shortener := NewURLShortener(testConfig)
 
 	tests := []struct {
 		name string
@@ -258,7 +284,11 @@ func TestHandleGet_MissingID(t *testing.T) {
 
 // TestHandleGet_NotFound проверяет обработку несуществующего ID
 func TestHandleGet_NotFound(t *testing.T) {
-	shortener := NewURLShortener()
+	testConfig := &config.Config{
+		ServerAddress: "localhost:8080",
+		BaseURL:       "http://localhost:8080",
+	}
+	shortener := NewURLShortener(testConfig)
 
 	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
 	rr := httptest.NewRecorder()
@@ -276,7 +306,11 @@ func TestHandleGet_NotFound(t *testing.T) {
 
 // TestHandleGet_WithDifferentPaths проверяет обработку разных форматов путей
 func TestHandleGet_WithDifferentPaths(t *testing.T) {
-	shortener := NewURLShortener()
+	testConfig := &config.Config{
+		ServerAddress: "localhost:8080",
+		BaseURL:       "http://localhost:8080",
+	}
+	shortener := NewURLShortener(testConfig)
 	originalURL := "https://example.com"
 	shortID := "test1234"
 
@@ -316,7 +350,11 @@ func TestHandleGet_WithDifferentPaths(t *testing.T) {
 
 // TestIntegration_CreateAndRedirect полный сценарий: создание и переход по ссылке
 func TestIntegration_CreateAndRedirect(t *testing.T) {
-	shortener := NewURLShortener()
+	testConfig := &config.Config{
+		ServerAddress: "localhost:8080",
+		BaseURL:       "http://localhost:8080",
+	}
+	shortener := NewURLShortener(testConfig)
 	originalURL := "https://integration-test.com/path?q=test"
 
 	// 1. Создаем короткую ссылку
@@ -371,7 +409,11 @@ func TestHandlePost_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			shortener := NewURLShortener()
+			testConfig := &config.Config{
+				ServerAddress: "localhost:8080",
+				BaseURL:       "http://localhost:8080",
+			}
+			shortener := NewURLShortener(testConfig)
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tt.body))
 			rr := httptest.NewRecorder()
 

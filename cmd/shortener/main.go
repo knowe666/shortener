@@ -10,18 +10,22 @@ import (
 	"sync"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	config "github.com/knowe666/shortener"
 )
 
 type URLShortener struct {
-	mu    sync.RWMutex
-	urls  map[string]string // shortID -> originalURL
-	cache map[string]string // originalURL -> shortID
+	mu     sync.RWMutex
+	urls   map[string]string // shortID -> originalURL
+	cache  map[string]string // originalURL -> shortID
+	config *config.Config    // добавляем конфиг в структуру
 }
 
-func NewURLShortener() *URLShortener {
+func NewURLShortener(cfg *config.Config) *URLShortener {
 	return &URLShortener{
-		urls:  make(map[string]string),
-		cache: make(map[string]string),
+		urls:   make(map[string]string),
+		cache:  make(map[string]string),
+		config: cfg,
 	}
 }
 
@@ -117,12 +121,25 @@ func (s *URLShortener) HandleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	shortener := NewURLShortener()
+	// Инициализируем конфигурацию из флагов
+	cfg, err := config.NewConfig()
+	if err != nil {
+		fmt.Printf("Failed to load config: %v\n", err)
+		return
+	}
+
+	// Выводим информацию о конфигурации
+	fmt.Printf("Server starting on %s\n", cfg.ServerAddress)
+	fmt.Printf("Base URL for short links: %s\n", cfg.BaseURL)
+
+	// Создаём экземпляр URLShortener с конфигом
+	shortener := NewURLShortener(cfg)
 	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
 	r.Post("/", shortener.HandlePost)
 	r.Get("/{id}", shortener.HandleGet)
-	fmt.Println("Server starting on http://localhost:8080")
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	if err := http.ListenAndServe(cfg.ServerAddress, r); err != nil {
 		fmt.Printf("Server failed: %v\n", err)
 	}
 }
