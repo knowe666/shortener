@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type URLShortener struct {
@@ -38,13 +40,6 @@ func isValidURL(url string) bool {
 }
 
 func (s *URLShortener) HandlePost(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Request")
-	// Проверяем метод
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusBadRequest)
-		return
-	}
-	fmt.Println("post method")
 	// Читаем тело запроса
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -101,13 +96,6 @@ func (s *URLShortener) HandlePost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *URLShortener) HandleGet(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("get method")
-	// Проверяем метод
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusBadRequest)
-		return
-	}
-
 	// Извлекаем ID из пути
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	if path == "" {
@@ -125,17 +113,16 @@ func (s *URLShortener) HandleGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Отправляем редирект
-	w.Header().Set("Location", originalURL)
-	w.WriteHeader(http.StatusTemporaryRedirect)
+	http.Redirect(w, r, originalURL, http.StatusTemporaryRedirect)
 }
 
 func main() {
 	shortener := NewURLShortener()
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /", shortener.HandlePost)
-	mux.HandleFunc("GET /{id}", shortener.HandleGet)
+	r := chi.NewRouter()
+	r.Post("/", shortener.HandlePost)
+	r.Get("/{id}", shortener.HandleGet)
 	fmt.Println("Server starting on http://localhost:8080")
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	if err := http.ListenAndServe(":8080", r); err != nil {
 		fmt.Printf("Server failed: %v\n", err)
 	}
 }
