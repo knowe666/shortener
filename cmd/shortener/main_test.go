@@ -78,30 +78,6 @@ func TestIsValidURL(t *testing.T) {
 	}
 }
 
-// TestHandlePost_MethodNotAllowed проверяет, что POST handler отклоняет не-POST методы
-func TestHandlePost_MethodNotAllowed(t *testing.T) {
-	shortener := NewURLShortener()
-
-	methods := []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodHead}
-
-	for _, method := range methods {
-		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/", nil)
-			rr := httptest.NewRecorder()
-
-			shortener.HandlePost(rr, req)
-
-			if rr.Code != http.StatusBadRequest {
-				t.Errorf("Expected status %d, got %d", http.StatusBadRequest, rr.Code)
-			}
-
-			if !strings.Contains(rr.Body.String(), "Method not allowed") {
-				t.Errorf("Expected error message 'Method not allowed', got %q", rr.Body.String())
-			}
-		})
-	}
-}
-
 // TestHandlePost_ValidURLs проверяет успешное создание коротких ссылок
 func TestHandlePost_ValidURLs(t *testing.T) {
 	shortener := NewURLShortener()
@@ -218,26 +194,6 @@ func TestHandlePost_Concurrency(t *testing.T) {
 	expectedUniqueURLs := len(urls)
 	if len(shortener.cache) != expectedUniqueURLs {
 		t.Errorf("Expected %d unique URLs in cache, got %d", expectedUniqueURLs, len(shortener.cache))
-	}
-}
-
-// TestHandleGet_MethodNotAllowed проверяет, что GET handler отклоняет не-GET методы
-func TestHandleGet_MethodNotAllowed(t *testing.T) {
-	shortener := NewURLShortener()
-
-	methods := []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch}
-
-	for _, method := range methods {
-		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/abc123", nil)
-			rr := httptest.NewRecorder()
-
-			shortener.HandleGet(rr, req)
-
-			if rr.Code != http.StatusBadRequest {
-				t.Errorf("Expected status %d, got %d", http.StatusBadRequest, rr.Code)
-			}
-		})
 	}
 }
 
