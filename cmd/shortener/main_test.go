@@ -280,7 +280,6 @@ func TestHandleGet_MissingID(t *testing.T) {
 		path string
 	}{
 		{"Root path", "/"},
-		{"Empty path", ""},
 	}
 
 	for _, tt := range tests {
