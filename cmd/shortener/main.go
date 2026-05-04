@@ -68,7 +68,7 @@ func (s *URLShortener) HandlePost(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 
 	// Проверяем, не сокращали ли уже этот URL
-	if shortID, exists := s.cache[originalURL]; exists {
+	if shortID, ok := s.cache[originalURL]; ok {
 		shortURL := fmt.Sprintf("http://localhost:8080/%s", shortID)
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusCreated)
