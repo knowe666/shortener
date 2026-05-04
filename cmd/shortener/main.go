@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,7 +16,7 @@ import (
 )
 
 type URLShortener struct {
-	mu     sync.RWMutex
+	mu     sync.Mutex
 	urls   map[string]string // shortID -> originalURL
 	cache  map[string]string // originalURL -> shortID
 	config *config.Config    // добавляем конфиг в структуру
@@ -33,7 +34,7 @@ func NewURLShortener(cfg *config.Config) *URLShortener {
 func generateShortID() (string, error) {
 	bytes := make([]byte, 6) // 6 байт = 8 символов в base64 (без padding)
 	if _, err := rand.Read(bytes); err != nil {
-		return "", err
+		return "", fmt.Errorf("ID generation error %w", err)
 	}
 	return base64.URLEncoding.EncodeToString(bytes)[:8], nil
 }
@@ -50,18 +51,18 @@ func (s *URLShortener) HandlePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to read body", http.StatusBadRequest)
 		return
 	}
-	fmt.Println("body " + string(body))
+	log.Print("body " + string(body))
 	originalURL := strings.TrimSpace(string(body))
-	// if originalURL == "" {
-	// 	http.Error(w, "Empty URL", http.StatusBadRequest)
-	// 	return
-	// }
+	if originalURL == "" {
+		http.Error(w, "Empty URL", http.StatusBadRequest)
+		return
+	}
 
-	// // Проверяем валидность URL
-	// if !isValidURL(originalURL) {
-	// 	http.Error(w, "Invalid URL: must start with http:// or https://", http.StatusBadRequest)
-	// 	return
-	// }
+	// Проверяем валидность URL
+	if !isValidURL(originalURL) {
+		http.Error(w, "Invalid URL: must start with http:// or https://", http.StatusBadRequest)
+		return
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -107,8 +108,8 @@ func (s *URLShortener) HandleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	originalURL, exists := s.urls[path]
 	if !exists {
@@ -124,13 +125,13 @@ func main() {
 	// Инициализируем конфигурацию из флагов
 	cfg, err := config.NewConfig()
 	if err != nil {
-		fmt.Printf("Failed to load config: %v\n", err)
+		fmt.Errorf("Failed to load config: %w\n", err)
 		return
 	}
 
 	// Выводим информацию о конфигурации
-	fmt.Printf("Server starting on %s\n", cfg.ServerAddress)
-	fmt.Printf("Base URL for short links: %s\n", cfg.BaseURL)
+	log.Print("Server starting on %s\n", cfg.ServerAddress)
+	log.Print("Base URL for short links: %s\n", cfg.BaseURL)
 
 	// Создаём экземпляр URLShortener с конфигом
 	shortener := NewURLShortener(cfg)
@@ -140,6 +141,6 @@ func main() {
 	r.Post("/", shortener.HandlePost)
 	r.Get("/{id}", shortener.HandleGet)
 	if err := http.ListenAndServe(cfg.ServerAddress, r); err != nil {
-		fmt.Printf("Server failed: %v\n", err)
+		log.Print("Server failed: %v\n", err)
 	}
 }

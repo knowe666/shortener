@@ -199,8 +199,8 @@ func TestHandlePost_Concurrency(t *testing.T) {
 	wg.Wait()
 
 	// Проверяем, что все URL закэшированы
-	shortener.mu.RLock()
-	defer shortener.mu.RUnlock()
+	shortener.mu.Lock()
+	defer shortener.mu.Unlock()
 
 	for _, url := range urls {
 		if _, exists := shortener.cache[url]; !exists {
