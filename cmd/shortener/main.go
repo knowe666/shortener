@@ -81,7 +81,7 @@ func (s *URLShortener) HandlePost(w http.ResponseWriter, r *http.Request) {
 	for {
 		id, err := generateShortID()
 		if err != nil {
-			http.Error(w, "Failed to generate ID", http.StatusInternalServerError)
+			http.StatusText(http.StatusInternalServerError)
 			return
 		}
 		if _, exists := s.urls[id]; !exists {
@@ -125,7 +125,7 @@ func main() {
 	// Инициализируем конфигурацию из флагов
 	cfg, err := config.NewConfig()
 	if err != nil {
-		fmt.Errorf("Failed to load config: %w\n", err)
+		log.Fatal("Failed to load config: %w\n", err)
 		return
 	}
 
