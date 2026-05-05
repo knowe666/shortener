@@ -4,13 +4,12 @@ import (
 	"testing"
 
 	"github.com/knowe666/shortener/internal/repository"
-	business "github.com/knowe666/shortener/internal/service"
 )
 
 func TestURLShortenerService_CreateShortURL(t *testing.T) {
 	// Используем реальный репозиторий
 	repo := repository.NewInMemoryURLRepository()
-	service := business.NewURLShortenerService(repo, "http://localhost:8080")
+	service := NewURLShortenerService(repo, "http://localhost:8080")
 
 	tests := []struct {
 		name        string
@@ -82,7 +81,7 @@ func TestURLShortenerService_CreateShortURL(t *testing.T) {
 
 func TestURLShortenerService_DuplicateURL(t *testing.T) {
 	repo := repository.NewInMemoryURLRepository()
-	service := business.NewURLShortenerService(repo, "http://localhost:8080")
+	service := NewURLShortenerService(repo, "http://localhost:8080")
 
 	originalURL := "https://duplicate-test.com"
 
@@ -106,7 +105,7 @@ func TestURLShortenerService_DuplicateURL(t *testing.T) {
 
 func TestURLShortenerService_GetOriginalURL(t *testing.T) {
 	repo := repository.NewInMemoryURLRepository()
-	service := business.NewURLShortenerService(repo, "http://localhost:8080")
+	service := NewURLShortenerService(repo, "http://localhost:8080")
 
 	// Создаём несколько ссылок
 	urls := map[string]string{

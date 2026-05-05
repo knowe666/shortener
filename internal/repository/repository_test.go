@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"sync"
 	"testing"
 )
 
@@ -23,7 +24,13 @@ func TestInMemoryURLRepository_Save(t *testing.T) {
 			name:        "Save with empty shortID",
 			shortID:     "",
 			originalURL: "https://example.com",
-			wantErr:     false, // пустой ID тоже может сохраниться
+			wantErr:     false,
+		},
+		{
+			name:        "Save duplicate shortID",
+			shortID:     "duplicate",
+			originalURL: "https://first.com",
+			wantErr:     false,
 		},
 	}
 
@@ -68,8 +75,20 @@ func TestInMemoryURLRepository_FindByShortID(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "Existing short ID second",
+			shortID: "test456",
+			want:    "https://github.com",
+			wantErr: false,
+		},
+		{
 			name:    "Non-existing short ID",
 			shortID: "nonexistent",
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name:    "Empty short ID",
+			shortID: "",
 			want:    "",
 			wantErr: true,
 		},
@@ -109,8 +128,20 @@ func TestInMemoryURLRepository_FindByOriginalURL(t *testing.T) {
 			wantErr:     false,
 		},
 		{
+			name:        "Existing second URL",
+			originalURL: "https://example2.com",
+			want:        "short2",
+			wantErr:     false,
+		},
+		{
 			name:        "Non-existing original URL",
 			originalURL: "https://nonexistent.com",
+			want:        "",
+			wantErr:     true,
+		},
+		{
+			name:        "Empty URL",
+			originalURL: "",
 			want:        "",
 			wantErr:     true,
 		},
@@ -149,6 +180,11 @@ func TestInMemoryURLRepository_Exists(t *testing.T) {
 			shortID: "notexist",
 			want:    false,
 		},
+		{
+			name:    "Empty short ID",
+			shortID: "",
+			want:    false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -165,22 +201,47 @@ func TestInMemoryURLRepository_Concurrent(t *testing.T) {
 	repo := NewInMemoryURLRepository()
 
 	// Запускаем несколько горутин для записи
-	done := make(chan bool)
+	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
+		wg.Add(1)
 		go func(id int) {
-			shortID := string(rune(id))
+			defer wg.Done()
+			shortID := string(rune(id + 65)) // A, B, C, ...
 			repo.Save(shortID, "https://example.com")
-			done <- true
 		}(i)
 	}
 
-	// Ждём завершения всех горутин
-	for i := 0; i < 100; i++ {
-		<-done
-	}
+	wg.Wait()
 
 	// Проверяем, что данные сохранились
 	if len(repo.urls) != 100 {
 		t.Errorf("Expected 100 items, got %d", len(repo.urls))
+	}
+}
+
+// Тест перезаписи существующего ключа
+func TestInMemoryURLRepository_Overwrite(t *testing.T) {
+	repo := NewInMemoryURLRepository()
+
+	// Сохраняем первый раз
+	err := repo.Save("test", "https://first.com")
+	if err != nil {
+		t.Errorf("First save failed: %v", err)
+	}
+
+	// Сохраняем с тем же ID, но другим URL
+	err = repo.Save("test", "https://second.com")
+	if err != nil {
+		t.Errorf("Second save failed: %v", err)
+	}
+
+	// Проверяем, что значение обновилось
+	original, err := repo.FindByShortID("test")
+	if err != nil {
+		t.Errorf("Find failed: %v", err)
+	}
+
+	if original != "https://second.com" {
+		t.Errorf("Expected https://second.com, got %s", original)
 	}
 }
