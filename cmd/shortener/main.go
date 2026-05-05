@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/knowe666/shortener/config"
+	"github.com/knowe666/shortener/internal/config"
 	transport "github.com/knowe666/shortener/internal/handler"
 	"github.com/knowe666/shortener/internal/repository"
 	business "github.com/knowe666/shortener/internal/service"
