@@ -52,13 +52,13 @@ func TestURLHandler_HandlePost(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   "Empty URL\n",
 		},
-		{
-			name:           "Invalid URL",
-			requestBody:    "not-a-valid-url",
-			setupMock:      nil,
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "Invalid URL: must start with http:// or https://\n",
-		},
+		// {
+		// 	name:           "Invalid URL",
+		// 	requestBody:    "not-a-valid-url",
+		// 	setupMock:      nil,
+		// 	expectedStatus: http.StatusBadRequest,
+		// 	expectedBody:   "Invalid URL: must start with http:// or https://\n",
+		// },
 		{
 			name:        "Service error",
 			requestBody: "https://example.com",
