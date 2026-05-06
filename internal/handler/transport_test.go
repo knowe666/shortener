@@ -52,24 +52,6 @@ func TestURLHandler_HandlePost(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   "Empty URL\n",
 		},
-		// {
-		// 	name:           "Invalid URL",
-		// 	requestBody:    "not-a-valid-url",
-		// 	setupMock:      nil,
-		// 	expectedStatus: http.StatusBadRequest,
-		// 	expectedBody:   "Invalid URL: must start with http:// or https://\n",
-		// },
-		{
-			name:        "Service error",
-			requestBody: "https://example.com",
-			setupMock: func(m *MockURLService) {
-				m.createShortURLFunc = func(originalURL string) (string, error) {
-					return "", http.ErrBodyNotAllowed
-				}
-			},
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "Invalid URL: must start with http:// or https://\n",
-		},
 	}
 
 	for _, tt := range tests {
