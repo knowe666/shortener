@@ -4,23 +4,20 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"strings"
+
+	"github.com/knowe666/shortener/internal/repository"
 )
 
-// Интерфейс для связи со слоем данных
-type URLRepository interface {
-	Save(shortID, originalURL string) error
-	FindByShortID(shortID string) (string, error)
-	FindByOriginalURL(originalURL string) (string, error)
-	Exists(shortID string) bool
-}
+const maxGenerateAttempts = 10
 
 type URLShortenerService struct {
-	repo    URLRepository
+	repo    repository.URLRepository
 	baseURL string
 }
 
-func NewURLShortenerService(repo URLRepository, baseURL string) *URLShortenerService {
+func NewURLShortenerService(repo repository.URLRepository, baseURL string) *URLShortenerService {
 	return &URLShortenerService{
 		repo:    repo,
 		baseURL: baseURL,
@@ -41,7 +38,7 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 
 	// Генерируем новый ID
 	var shortID string
-	for {
+	for range maxGenerateAttempts {
 		id, err := generateShortID()
 		if err != nil {
 			return "", fmt.Errorf("failed to generate ID: %w", err)
@@ -50,6 +47,13 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 			shortID = id
 			break
 		}
+
+		// опционально: логгируем коллизию для мониторинга
+		// log.Printf("collision on attempt %d for id: %s", attempt+1, id)
+	}
+
+	if shortID == "" {
+		return "", fmt.Errorf("failed to generate unique short ID after %d attempts (possible ID space exhaustion)", maxGenerateAttempts)
 	}
 
 	// Сохраняем через репозиторий
@@ -57,7 +61,7 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 		return "", fmt.Errorf("failed to save URL: %w", err)
 	}
 
-	return fmt.Sprintf("%s/%s", s.baseURL, shortID), nil
+	return url.JoinPath(s.baseURL, shortID)
 }
 
 func (s *URLShortenerService) GetOriginalURL(shortID string) (string, error) {
