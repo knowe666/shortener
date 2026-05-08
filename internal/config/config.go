@@ -67,12 +67,3 @@ func (c *Config) String() string {
 	return fmt.Sprintf("Config{ServerAddress: %s, BaseURL: %s}",
 		c.ServerAddress, c.BaseURL)
 }
-
-// MustLoad загружает конфигурацию или паникует при ошибке
-func MustLoad() *Config {
-	cfg, err := NewConfig()
-	if err != nil {
-		panic(fmt.Sprintf("failed to load config: %v", err))
-	}
-	return cfg
-}
