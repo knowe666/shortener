@@ -8,13 +8,16 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	business "github.com/knowe666/shortener/internal/service"
 )
 
 // Интерфейс для связи со слоем бизнес-логики
+type URLService interface {
+	CreateShortURL(originalURL string) (string, error)
+	GetOriginalURL(shortID string) (string, error)
+}
 
 type URLHandler struct {
-	service business.URLService
+	service URLService
 }
 
 func NewURLHandler(service URLService) *URLHandler {

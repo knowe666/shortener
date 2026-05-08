@@ -6,18 +6,24 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-
-	"github.com/knowe666/shortener/internal/repository"
 )
 
 const maxGenerateAttempts = 10
 
+// Интерфейс для связи со слоем данных
+type URLRepository interface {
+	Save(shortID, originalURL string) error
+	FindByShortID(shortID string) (string, error)
+	FindByOriginalURL(originalURL string) (string, error)
+	Exists(shortID string) bool
+}
+
 type URLShortenerService struct {
-	repo    repository.URLRepository
+	repo    URLRepository
 	baseURL string
 }
 
-func NewURLShortenerService(repo repository.URLRepository, baseURL string) *URLShortenerService {
+func NewURLShortenerService(repo URLRepository, baseURL string) *URLShortenerService {
 	return &URLShortenerService{
 		repo:    repo,
 		baseURL: baseURL,

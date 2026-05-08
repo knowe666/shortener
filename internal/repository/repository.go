@@ -5,14 +5,6 @@ import (
 	"sync"
 )
 
-// Интерфейс для связи со слоем данных
-type URLRepository interface {
-	Save(shortID, originalURL string) error
-	FindByShortID(shortID string) (string, error)
-	FindByOriginalURL(originalURL string) (string, error)
-	Exists(shortID string) bool
-}
-
 // Реализация хранения данных в памяти
 type InMemoryURLRepository struct {
 	mu    sync.Mutex
