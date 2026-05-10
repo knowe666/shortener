@@ -3,6 +3,7 @@ package business
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -30,6 +31,13 @@ func NewURLShortenerService(repo URLRepository, baseURL string) *URLShortenerSer
 	}
 }
 
+var (
+	ErrInvalidURL         = errors.New("invalid URL: must start with http:// or https://")
+	ErrFailedToGenerateID = errors.New("failed to generate unique short ID (possible ID space exhaustion)")
+	ErrDuplicate          = errors.New("url already exists")
+	ErrFailedToSave       = errors.New("failed to save URL")
+)
+
 // генерация коротких ссылок - бизнес-логика
 func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error) {
 	// Валидация URL
@@ -47,24 +55,21 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 	for range maxGenerateAttempts {
 		id, err := generateShortID()
 		if err != nil {
-			return "", fmt.Errorf("failed to generate ID: %w", err)
+			continue // попробуем снова, ошибка генерации
 		}
 		if !s.repo.Exists(id) {
 			shortID = id
 			break
 		}
-
-		// опционально: логгируем коллизию для мониторинга
-		// log.Printf("collision on attempt %d for id: %s", attempt+1, id)
 	}
 
 	if shortID == "" {
-		return "", fmt.Errorf("failed to generate unique short ID after %d attempts (possible ID space exhaustion)", maxGenerateAttempts)
+		return "", ErrFailedToGenerateID
 	}
 
 	// Сохраняем через репозиторий
 	if err := s.repo.Save(shortID, originalURL); err != nil {
-		return "", fmt.Errorf("failed to save URL: %w", err)
+		return "", ErrFailedToSave
 	}
 
 	return url.JoinPath(s.baseURL, shortID)

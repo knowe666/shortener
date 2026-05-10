@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	business "github.com/knowe666/shortener/internal/service"
 )
 
 // Интерфейс для связи со слоем бизнес-логики
@@ -41,7 +43,18 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 	// Вызов бизнес-логики
 	shortURL, err := h.service.CreateShortURL(originalURL)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		switch {
+		case errors.Is(err, business.ErrInvalidURL):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, business.ErrDuplicate):
+			http.Error(w, err.Error(), http.StatusConflict)
+		case errors.Is(err, business.ErrFailedToGenerateID):
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		case errors.Is(err, business.ErrFailedToSave):
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		default:
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}
 		return
 	}
 
