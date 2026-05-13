@@ -3,6 +3,8 @@ package business
 import (
 	"errors"
 	"testing"
+
+	"github.com/knowe666/shortener/internal/repository"
 )
 
 // Mock репозитория для тестирования бизнес-логики
@@ -48,9 +50,11 @@ func (m *MockURLRepository) FindByOriginalURL(originalURL string) (string, error
 	return shortID, nil
 }
 
-func (m *MockURLRepository) Exists(shortID string) bool {
-	_, exists := m.urls[shortID]
-	return exists
+func (m *MockURLRepository) Exists(shortID string) (bool, error) {
+	if _, ok := m.urls[shortID]; ok {
+		return true, repository.ErrFailedExistsID
+	}
+	return false, nil
 }
 
 // Установка ошибки для тестирования

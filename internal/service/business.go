@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 
@@ -19,7 +18,7 @@ type URLRepository interface {
 	Save(shortID, originalURL string) error
 	FindByShortID(shortID string) (string, error)
 	FindByOriginalURL(originalURL string) (string, error)
-	Exists(shortID string) bool
+	Exists(shortID string) (bool, error)
 }
 
 type URLShortenerService struct {
@@ -58,17 +57,17 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 	for range maxGenerateAttempts {
 		id, err := generateShortID()
 		if err != nil {
+			fmt.Errorf("failed to generate ID: %w", err)
 			continue // попробуем снова, ошибка генерации
 		}
 		_, err = s.repo.Exists(id)
 		if err != nil {
 			switch {
-			case errors.Is(err, repository.ErrFailedToGenerateID):
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+			case errors.Is(err, repository.ErrFailedExistsID):
+				continue
 			default:
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				fmt.Errorf("Udefind error generate ID: %w", err)
 			}
-
 			shortID = id
 			break
 		}

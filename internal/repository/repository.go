@@ -14,7 +14,7 @@ type InMemoryURLRepository struct {
 }
 
 var (
-	ErrFailedToGenerateID = errors.New("failed to generate ID, id exists")
+	ErrFailedExistsID = errors.New("failed to generate ID, id exists")
 )
 
 func NewInMemoryURLRepository() *InMemoryURLRepository {
@@ -59,10 +59,8 @@ func (r *InMemoryURLRepository) Exists(shortID string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, ok := r.urls[shortID]
-	if ok {
-		return false, nil
-	} else {
-		return true, ErrFailedToGenerateID
+	if _, ok := r.urls[shortID]; ok {
+		return true, ErrFailedExistsID
 	}
+	return false, nil
 }
