@@ -67,10 +67,12 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 				continue
 			default:
 				fmt.Errorf("Udefind error generate ID: %w", err)
+				continue
 			}
-			shortID = id
-			break
 		}
+		shortID = id
+		break
+
 	}
 
 	if shortID == "" {
