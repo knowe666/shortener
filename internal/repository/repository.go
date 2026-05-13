@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 )
@@ -11,6 +12,10 @@ type InMemoryURLRepository struct {
 	urls  map[string]string // shortID -> originalURL
 	cache map[string]string // originalURL -> shortID
 }
+
+var (
+	ErrFailedToGenerateID = errors.New("failed to generate ID, id exists")
+)
 
 func NewInMemoryURLRepository() *InMemoryURLRepository {
 	return &InMemoryURLRepository{
@@ -50,10 +55,14 @@ func (r *InMemoryURLRepository) FindByOriginalURL(originalURL string) (string, e
 	return shortID, nil
 }
 
-func (r *InMemoryURLRepository) Exists(shortID string) bool {
+func (r *InMemoryURLRepository) Exists(shortID string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, exists := r.urls[shortID]
-	return exists
+	_, ok := r.urls[shortID]
+	if ok {
+		return false, nil
+	} else {
+		return true, ErrFailedToGenerateID
+	}
 }

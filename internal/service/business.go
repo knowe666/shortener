@@ -5,8 +5,11 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/knowe666/shortener/internal/repository"
 )
 
 const maxGenerateAttempts = 10
@@ -57,7 +60,15 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 		if err != nil {
 			continue // попробуем снова, ошибка генерации
 		}
-		if !s.repo.Exists(id) {
+		_, err = s.repo.Exists(id)
+		if err != nil {
+			switch {
+			case errors.Is(err, repository.ErrFailedToGenerateID):
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			default:
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			}
+
 			shortID = id
 			break
 		}
