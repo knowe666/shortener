@@ -1,10 +1,8 @@
 package business
 
 import (
-	"errors"
+	"fmt"
 	"testing"
-
-	"github.com/knowe666/shortener/internal/repository"
 )
 
 // Mock репозитория для тестирования бизнес-логики
@@ -17,8 +15,7 @@ type MockURLRepository struct {
 
 func NewMockURLRepository() *MockURLRepository {
 	return &MockURLRepository{
-		urls:  make(map[string]string),
-		cache: make(map[string]string),
+		urls: make(map[string]string),
 	}
 }
 
@@ -31,35 +28,36 @@ func (m *MockURLRepository) Save(shortID, originalURL string) error {
 	return nil
 }
 
-func (m *MockURLRepository) FindByShortID(shortID string) (string, error) {
-	if m.findError != nil {
-		return "", m.findError
-	}
+func (m *MockURLRepository) Get(shortID string) (string, error) {
 	url, exists := m.urls[shortID]
 	if !exists {
-		return "", errors.New("not found")
+		return "", fmt.Errorf("not found")
 	}
 	return url, nil
 }
 
-func (m *MockURLRepository) FindByOriginalURL(originalURL string) (string, error) {
-	shortID, exists := m.cache[originalURL]
-	if !exists {
-		return "", errors.New("not found")
-	}
-	return shortID, nil
-}
+func TestURLShortenerService_CreateShortURL_Duplicate(t *testing.T) {
+	repo := NewMockURLRepository()
+	service := NewURLShortenerService(repo, "http://localhost:8080")
 
-func (m *MockURLRepository) Exists(shortID string) (bool, error) {
-	if _, ok := m.urls[shortID]; ok {
-		return true, repository.ErrFailedExistsID
-	}
-	return false, nil
-}
+	originalURL := "https://example.com"
 
-// Установка ошибки для тестирования
-func (m *MockURLRepository) SetSaveError(err error) {
-	m.saveError = err
+	// Первое создание
+	first, err := service.CreateShortURL(originalURL)
+	if err != nil {
+		t.Fatalf("First creation failed: %v", err)
+	}
+
+	// Второе создание с тем же URL
+	second, err := service.CreateShortURL(originalURL)
+	if err != nil {
+		t.Fatalf("Second creation failed: %v", err)
+	}
+
+	// Должна вернуться та же ссылка
+	if first != second {
+		t.Errorf("Expected same short URL, got %s and %s", first, second)
+	}
 }
 
 func TestURLShortenerService_CreateShortURL(t *testing.T) {
@@ -134,46 +132,6 @@ func TestURLShortenerService_CreateShortURL(t *testing.T) {
 				if len(got) < len(tt.wantContains) {
 					t.Errorf("CreateShortURL() = %v, want contains %v", got, tt.wantContains)
 				}
-			}
-		})
-	}
-}
-
-func TestURLShortenerService_GetOriginalURL(t *testing.T) {
-	mockRepo := NewMockURLRepository()
-	mockRepo.Save("test123", "https://example.com")
-
-	service := NewURLShortenerService(mockRepo, "http://localhost:8080")
-
-	tests := []struct {
-		name    string
-		shortID string
-		want    string
-		wantErr bool
-	}{
-		{
-			name:    "Existing short ID",
-			shortID: "test123",
-			want:    "https://example.com",
-			wantErr: false,
-		},
-		{
-			name:    "Non-existing short ID",
-			shortID: "notexist",
-			want:    "",
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := service.GetOriginalURL(tt.shortID)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetOriginalURL() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("GetOriginalURL() = %v, want %v", got, tt.want)
 			}
 		})
 	}

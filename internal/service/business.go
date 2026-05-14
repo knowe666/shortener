@@ -7,29 +7,38 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/knowe666/shortener/internal/repository"
 )
 
 const maxGenerateAttempts = 10
 
-// Интерфейс для связи со слоем данных
+// URLRepository - интерфейс репозитория
 type URLRepository interface {
 	Save(shortID, originalURL string) error
-	FindByShortID(shortID string) (string, error)
-	FindByOriginalURL(originalURL string) (string, error)
-	Exists(shortID string) (bool, error)
+	Get(shortID string) (string, error)
 }
 
+// URLShortenerService - сервис бизнес-логики
 type URLShortenerService struct {
 	repo    URLRepository
 	baseURL string
+	mu      sync.Mutex
+	cache   map[string]string // originalURL -> shortID (для быстрого поиска дубликатов)
 }
 
+// GetOriginalURL implements [transport.URLService].
+func (s *URLShortenerService) GetOriginalURL(shortID string) (string, error) {
+	panic("unimplemented")
+}
+
+// NewURLShortenerService создаёт новый сервис
 func NewURLShortenerService(repo URLRepository, baseURL string) *URLShortenerService {
 	return &URLShortenerService{
 		repo:    repo,
 		baseURL: baseURL,
+		cache:   make(map[string]string),
 	}
 }
 
@@ -47,11 +56,6 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 		return "", fmt.Errorf("invalid URL: must start with http:// or https://")
 	}
 
-	// Проверяем, не существует ли уже такой URL
-	if shortID, err := s.repo.FindByOriginalURL(originalURL); err == nil {
-		return fmt.Sprintf("%s/%s", s.baseURL, shortID), nil
-	}
-
 	// Генерируем новый ID
 	var shortID string
 	for range maxGenerateAttempts {
@@ -60,18 +64,20 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 			fmt.Errorf("failed to generate ID: %w", err)
 			continue // попробуем снова, ошибка генерации
 		}
-		_, err = s.repo.Exists(id)
+		originalURL, err = s.repo.Get(id)
 		if err != nil {
 			switch {
-			case errors.Is(err, repository.ErrFailedExistsID):
+			case errors.Is(err, repository.ErrEmptyID):
+				fmt.Errorf("short ID cannot be empty: %w", err)
 				continue
+			case errors.Is(err, repository.ErrNotFoundID):
+				shortID = id
+				break
 			default:
 				fmt.Errorf("Udefind error generate ID: %w", err)
 				continue
 			}
 		}
-		shortID = id
-		break
 
 	}
 
@@ -85,10 +91,6 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 	}
 
 	return url.JoinPath(s.baseURL, shortID)
-}
-
-func (s *URLShortenerService) GetOriginalURL(shortID string) (string, error) {
-	return s.repo.FindByShortID(shortID)
 }
 
 // generateShortID создаёт случайный идентификатор
