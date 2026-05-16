@@ -30,7 +30,7 @@ type URLShortenerService struct {
 
 // GetOriginalURL implements [transport.URLService].
 func (s *URLShortenerService) GetOriginalURL(shortID string) (string, error) {
-	panic("unimplemented")
+	return s.repo.Get(shortID)
 }
 
 // NewURLShortenerService создаёт новый сервис
