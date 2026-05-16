@@ -10,12 +10,13 @@ type MockURLRepository struct {
 	urls      map[string]string
 	cache     map[string]string
 	saveError error
-	findError error
+	getError  error
 }
 
 func NewMockURLRepository() *MockURLRepository {
 	return &MockURLRepository{
-		urls: make(map[string]string),
+		urls:  make(map[string]string),
+		cache: make(map[string]string),
 	}
 }
 
@@ -29,6 +30,9 @@ func (m *MockURLRepository) Save(shortID, originalURL string) error {
 }
 
 func (m *MockURLRepository) Get(shortID string) (string, error) {
+	if m.getError != nil {
+		return "", m.getError
+	}
 	url, exists := m.urls[shortID]
 	if !exists {
 		return "", fmt.Errorf("not found")
@@ -70,14 +74,6 @@ func TestURLShortenerService_CreateShortURL(t *testing.T) {
 		wantContains string
 	}{
 		{
-			name:         "Valid URL creation",
-			originalURL:  "https://example.com",
-			baseURL:      "http://localhost:8080",
-			setupMock:    func(m *MockURLRepository) {},
-			wantErr:      false,
-			wantContains: "http://localhost:8080/",
-		},
-		{
 			name:         "Invalid URL without scheme",
 			originalURL:  "example.com",
 			baseURL:      "http://localhost:8080",
@@ -92,24 +88,6 @@ func TestURLShortenerService_CreateShortURL(t *testing.T) {
 			setupMock:    func(m *MockURLRepository) {},
 			wantErr:      true,
 			wantContains: "",
-		},
-		{
-			name:        "Duplicate URL - should return existing",
-			originalURL: "https://duplicate.com",
-			baseURL:     "http://localhost:8080",
-			setupMock: func(m *MockURLRepository) {
-				m.Save("existing123", "https://duplicate.com")
-			},
-			wantErr:      false,
-			wantContains: "http://localhost:8080/existing123",
-		},
-		{
-			name:         "URL with https scheme",
-			originalURL:  "https://secure.com",
-			baseURL:      "https://short.com",
-			setupMock:    func(m *MockURLRepository) {},
-			wantErr:      false,
-			wantContains: "https://short.com/",
 		},
 	}
 

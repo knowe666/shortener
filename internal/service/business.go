@@ -70,12 +70,10 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 				continue
 			case errors.Is(err, repository.ErrNotFoundID):
 				shortID = id
+				break
 			default:
 				continue
 			}
-		}
-		if shortID != "" {
-			break
 		}
 	}
 

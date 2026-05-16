@@ -23,7 +23,7 @@ func TestInMemoryURLRepository_Save(t *testing.T) {
 			name:        "Save with empty shortID",
 			shortID:     "",
 			originalURL: "https://example.com",
-			wantErr:     false, // пустой ID тоже может сохраниться
+			wantErr:     true,
 		},
 	}
 
