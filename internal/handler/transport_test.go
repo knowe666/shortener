@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/knowe666/shortener/internal/repository"
@@ -179,11 +180,14 @@ func TestIntegration_CompleteFlow(t *testing.T) {
 	// Создаём реальные компоненты
 	repo := repository.NewInMemoryURLRepository()
 	service := business.NewURLShortenerService(repo, "http://localhost:8080")
+	if service == nil {
+		t.Fatal("Service is nil")
+	}
 	handler := NewURLHandler(service)
 	router := SetupRouter(handler)
-
 	// 1. Создаём короткую ссылку
-	reqBody := bytes.NewBufferString("https://integration-test.com")
+	testURL := "https://integration-test.com"
+	reqBody := bytes.NewBufferString(testURL)
 	req := httptest.NewRequest(http.MethodPost, "/", reqBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -191,21 +195,19 @@ func TestIntegration_CompleteFlow(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Errorf("Create status = %v, want %v", w.Code, http.StatusCreated)
 	}
-
 	shortURL := w.Body.String()
-
 	// 2. Извлекаем ID из короткой ссылки
-	shortID := shortURL[len(shortURL)-8:]
-
+	shortID := strings.TrimPrefix(shortURL, "http://localhost:8080/")
+	if shortID == "" {
+		t.Fatal("Failed to extract short ID from URL:", shortURL)
+	}
 	// 3. Переходим по короткой ссылке
 	req = httptest.NewRequest(http.MethodGet, "/"+shortID, nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
-
 	if w.Code != http.StatusTemporaryRedirect {
 		t.Errorf("Redirect status = %v, want %v", w.Code, http.StatusTemporaryRedirect)
 	}
-
 	location := w.Header().Get("Location")
 	if location != "https://integration-test.com" {
 		t.Errorf("Redirect location = %v, want %v", location, "https://integration-test.com")

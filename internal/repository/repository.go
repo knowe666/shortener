@@ -33,9 +33,11 @@ func NewInMemoryURLRepository() *InMemoryURLRepository {
 // Save сохраняет короткую ссылку
 func (r *InMemoryURLRepository) Save(shortID, originalURL string) error {
 	if shortID == "" {
+		fmt.Println("short ID cannot be empty")
 		return fmt.Errorf("short ID cannot be empty")
 	}
 	if originalURL == "" {
+		fmt.Println("original URL cannot be empty")
 		return fmt.Errorf("original URL cannot be empty")
 	}
 	r.mu.Lock()

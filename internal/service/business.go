@@ -61,24 +61,22 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 	for range maxGenerateAttempts {
 		id, err := generateShortID()
 		if err != nil {
-			fmt.Errorf("failed to generate ID: %w", err)
 			continue // попробуем снова, ошибка генерации
 		}
-		originalURL, err = s.repo.Get(id)
+		_, err = s.repo.Get(id)
 		if err != nil {
 			switch {
 			case errors.Is(err, repository.ErrEmptyID):
-				fmt.Errorf("short ID cannot be empty: %w", err)
 				continue
 			case errors.Is(err, repository.ErrNotFoundID):
 				shortID = id
-				break
 			default:
-				fmt.Errorf("Udefind error generate ID: %w", err)
 				continue
 			}
 		}
-
+		if shortID != "" {
+			break
+		}
 	}
 
 	if shortID == "" {
@@ -87,7 +85,7 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 
 	// Сохраняем через репозиторий
 	if err := s.repo.Save(shortID, originalURL); err != nil {
-		return "", ErrFailedToSave
+		return "", fmt.Errorf("ERR: %w", err)
 	}
 
 	return url.JoinPath(s.baseURL, shortID)
