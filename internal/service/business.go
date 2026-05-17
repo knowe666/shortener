@@ -28,11 +28,6 @@ type URLShortenerService struct {
 	cache   map[string]string // originalURL -> shortID (для быстрого поиска дубликатов)
 }
 
-// GetOriginalURL implements [transport.URLService].
-func (s *URLShortenerService) GetOriginalURL(shortID string) (string, error) {
-	return s.repo.Get(shortID)
-}
-
 // NewURLShortenerService создаёт новый сервис
 func NewURLShortenerService(repo URLRepository, baseURL string) *URLShortenerService {
 	return &URLShortenerService{
@@ -40,6 +35,10 @@ func NewURLShortenerService(repo URLRepository, baseURL string) *URLShortenerSer
 		baseURL: baseURL,
 		cache:   make(map[string]string),
 	}
+}
+
+func (s *URLShortenerService) GetOriginalURL(shortID string) (string, error) {
+	return s.repo.Get(shortID)
 }
 
 var (
@@ -55,9 +54,18 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 	if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
 		return "", fmt.Errorf("invalid URL: must start with http:// or https://")
 	}
+	originalURL = strings.TrimSpace(originalURL)
+	s.mu.Lock() // для предотвращения race condition
+	oldshortID, exists := s.cache[originalURL]
+	if exists {
+		s.mu.Unlock()
+		return url.JoinPath(s.baseURL, oldshortID) // Возвращаем существующую короткую ссылку
+	}
+	s.mu.Unlock()
 
 	// Генерируем новый ID
 	var shortID string
+loopgenerate: // метка цикла для выхода из него внутри switch
 	for range maxGenerateAttempts {
 		id, err := generateShortID()
 		if err != nil {
@@ -70,7 +78,7 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 				continue
 			case errors.Is(err, repository.ErrNotFoundID):
 				shortID = id
-				break
+				break loopgenerate
 			default:
 				continue
 			}
@@ -86,6 +94,9 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 		return "", fmt.Errorf("ERR: %w", err)
 	}
 
+	s.mu.Lock()
+	s.cache[originalURL] = shortID // Сохраняем в кэш
+	s.mu.Unlock()
 	return url.JoinPath(s.baseURL, shortID)
 }
 

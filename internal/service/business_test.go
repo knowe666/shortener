@@ -6,6 +6,30 @@ import (
 	"github.com/knowe666/shortener/internal/repository"
 )
 
+func TestURLShortenerService_CreateShortURL_Duplicate(t *testing.T) {
+	repo := repository.NewInMemoryURLRepository()
+	service := NewURLShortenerService(repo, "http://localhost:8080")
+
+	originalURL := "https://example.com"
+
+	// Первое создание
+	first, err := service.CreateShortURL(originalURL)
+	if err != nil {
+		t.Fatalf("First creation failed: %v", err)
+	}
+
+	// Второе создание с тем же URL
+	second, err := service.CreateShortURL(originalURL)
+	if err != nil {
+		t.Fatalf("Second creation failed: %v", err)
+	}
+
+	// Должна вернуться та же ссылка
+	if first != second {
+		t.Errorf("Expected same short URL, got %s and %s", first, second)
+	}
+}
+
 func TestURLShortenerService_CreateShortURL(t *testing.T) {
 	tests := []struct {
 		name         string
