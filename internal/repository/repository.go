@@ -19,14 +19,16 @@ var (
 
 // InMemoryURLRepository реализует URLRepository с хранением в памяти
 type InMemoryURLRepository struct {
-	mu   sync.Mutex
-	urls map[string]string // shortID -> originalURL
+	mu    sync.Mutex
+	urls  map[string]string // shortID -> originalURL
+	cache map[string]string // shortID -> originalURL (cached)
 }
 
 // NewInMemoryURLRepository создаёт новый экземпляр репозитория
 func NewInMemoryURLRepository() *InMemoryURLRepository {
 	return &InMemoryURLRepository{
-		urls: make(map[string]string),
+		urls:  make(map[string]string),
+		cache: make(map[string]string),
 	}
 }
 
