@@ -40,6 +40,14 @@ func TestURLShortenerService_CreateShortURL(t *testing.T) {
 		wantContains string
 	}{
 		{
+			name:         "Valid URL creation",
+			originalURL:  "https://example.com",
+			baseURL:      "http://localhost:8080",
+			setupMock:    func(m *repository.InMemoryURLRepository) {},
+			wantErr:      false,
+			wantContains: "http://localhost:8080/",
+		},
+		{
 			name:         "Invalid URL without scheme",
 			originalURL:  "example.com",
 			baseURL:      "http://localhost:8080",
