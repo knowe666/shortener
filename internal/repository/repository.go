@@ -13,8 +13,9 @@ type URLRepository interface {
 }
 
 var (
-	ErrNotFoundID = errors.New("short URL not found for ID")
-	ErrEmptyID    = errors.New("short ID cannot be empty")
+	ErrNotFoundID  = errors.New("short URL not found for ID")
+	ErrEmptyID     = errors.New("short ID cannot be empty")
+	ErrDuplicateID = errors.New("short ID already exists")
 )
 
 // InMemoryURLRepository реализует URLRepository с хранением в памяти
@@ -44,6 +45,10 @@ func (r *InMemoryURLRepository) Save(shortID, originalURL string) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if _, ok := r.urls[shortID]; ok {
+		fmt.Printf("short ID %s already exists\n", shortID)
+		return fmt.Errorf("%w, %s", ErrDuplicateID, shortID)
+	}
 	r.urls[shortID] = originalURL
 	return nil
 }

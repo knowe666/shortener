@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"os"
 )
 
 // Config хранит все конфигурационные параметры приложения
@@ -13,12 +14,16 @@ type Config struct {
 
 // NewConfig инициализирует конфигурацию из флагов командной строки
 func NewConfig() (*Config, error) {
-	// Определяем флаги с значениями по умолчанию
 	serverAddress := flag.String("a", "localhost:8080", "адрес запуска HTTP-сервера")
 	baseURL := flag.String("b", "http://localhost:8080", "базовый адрес результирующего сокращённого URL")
-
-	// Парсим флаги
 	flag.Parse()
+
+	if serverAddressEnv := os.Getenv("SERVER_ADDRESS"); serverAddressEnv != "" {
+		*serverAddress = serverAddressEnv
+	}
+	if baseURLEnv := os.Getenv("BASE_URL"); baseURLEnv != "" {
+		*baseURL = baseURLEnv
+	}
 
 	// Валидация параметров
 	if *serverAddress == "" {

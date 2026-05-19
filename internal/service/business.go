@@ -64,40 +64,23 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 	s.mu.Unlock()
 
 	// Генерируем новый ID
-	var shortID string
-loopgenerate: // метка цикла для выхода из него внутри switch
 	for range maxGenerateAttempts {
 		id, err := generateShortID()
 		if err != nil {
 			continue // попробуем снова, ошибка генерации
 		}
-		_, err = s.repo.Get(id)
-		if err != nil {
-			switch {
-			case errors.Is(err, repository.ErrEmptyID):
-				continue
-			case errors.Is(err, repository.ErrNotFoundID):
-				shortID = id
-				break loopgenerate
-			default:
-				continue
+		if err := s.repo.Save(id, originalURL); err != nil {
+			if errors.Is(err, repository.ErrDuplicateID) {
+				continue // ID уже существует, пробуем снова
 			}
+			return "", fmt.Errorf("%w: %v", ErrFailedToSave, err)
 		}
+		s.mu.Lock()
+		s.cache[originalURL] = id // Сохраняем в кэш
+		s.mu.Unlock()
+		return url.JoinPath(s.baseURL, id)
 	}
-
-	if shortID == "" {
-		return "", ErrFailedToGenerateID
-	}
-
-	// Сохраняем через репозиторий
-	if err := s.repo.Save(shortID, originalURL); err != nil {
-		return "", fmt.Errorf("ERR: %w", err)
-	}
-
-	s.mu.Lock()
-	s.cache[originalURL] = shortID // Сохраняем в кэш
-	s.mu.Unlock()
-	return url.JoinPath(s.baseURL, shortID)
+	return "", ErrFailedToGenerateID
 }
 
 // generateShortID создаёт случайный идентификатор
