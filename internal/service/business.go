@@ -62,7 +62,6 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 		return url.JoinPath(s.baseURL, oldshortID) // Возвращаем существующую короткую ссылку
 	}
 	s.mu.Unlock()
-
 	// Генерируем новый ID
 	for range maxGenerateAttempts {
 		id, err := generateShortID()
