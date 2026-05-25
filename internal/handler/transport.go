@@ -6,11 +6,64 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	business "github.com/knowe666/shortener/internal/service"
+
+	"go.uber.org/zap"
 )
+
+var logger *zap.Logger
+var sugar *zap.SugaredLogger
+
+// Инициализация логгера
+func init() {
+	var err error
+	logger, err = zap.NewProduction()
+	if err != nil {
+		log.Fatal("Failed to initialize logger:", err)
+	}
+	sugar = logger.Sugar()
+}
+
+// responseWriterWrapper оборачивает http.ResponseWriter для захвата статуса и размера ответа
+type responseWriterWrapper struct {
+	http.ResponseWriter
+	statusCode int
+	bodySize   int
+}
+
+func newResponseWriterWrapper(w http.ResponseWriter) *responseWriterWrapper {
+	return &responseWriterWrapper{
+		ResponseWriter: w,
+		statusCode:     http.StatusOK,
+		bodySize:       0,
+	}
+}
+
+func LoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		wrapped := newResponseWriterWrapper(w)
+		next.ServeHTTP(wrapped, r)
+		duration := time.Since(start)
+		uri := r.URL.RequestURI()
+		method := r.Method
+		statusCode := wrapped.statusCode
+		bodySize := wrapped.bodySize
+
+		// Логируем с использованием zap
+		logger.Info("HTTP Request",
+			zap.String("uri", uri),
+			zap.String("method", method),
+			zap.Duration("duration", duration),
+			zap.Int("status_code", statusCode),
+			zap.Int("response_size", bodySize),
+		)
+	})
+}
 
 // Интерфейс для связи со слоем бизнес-логики
 type URLService interface {
