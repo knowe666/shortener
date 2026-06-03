@@ -2,6 +2,7 @@ package transport
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,26 +10,209 @@ import (
 
 	"github.com/knowe666/shortener/internal/repository"
 	business "github.com/knowe666/shortener/internal/service"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Mock сервиса для тестирования транспортного слоя
 type MockURLService struct {
-	createShortURLFunc func(originalURL string) (string, error)
-	getOriginalURLFunc func(shortID string) (string, error)
+	CreateShortURLFunc func(originalURL string) (string, error)
+	GetOriginalURLFunc func(shortID string) (string, error)
 }
 
 func (m *MockURLService) CreateShortURL(originalURL string) (string, error) {
-	if m.createShortURLFunc != nil {
-		return m.createShortURLFunc(originalURL)
+	if m.CreateShortURLFunc != nil {
+		return m.CreateShortURLFunc(originalURL)
 	}
 	return "http://localhost:8080/test123", nil
 }
 
 func (m *MockURLService) GetOriginalURL(shortID string) (string, error) {
-	if m.getOriginalURLFunc != nil {
-		return m.getOriginalURLFunc(shortID)
+	if m.GetOriginalURLFunc != nil {
+		return m.GetOriginalURLFunc(shortID)
 	}
 	return "https://example.com", nil
+}
+
+func TestHandleAPIShorten_Success(t *testing.T) {
+	// Создаем мок сервис
+	mockService := &MockURLService{
+		CreateShortURLFunc: func(originalURL string) (string, error) {
+			return "http://localhost:8080/abc123", nil
+		},
+	}
+
+	handler := NewURLHandler(mockService)
+
+	// Создаем JSON запрос
+	reqBody := shortenRequest{
+		URL: "https://practicum.yandex.ru",
+	}
+	jsonBody, err := json.Marshal(reqBody)
+	require.NoError(t, err)
+
+	// Создаем HTTP запрос
+	req := httptest.NewRequest(http.MethodPost, "/api/shorten", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	// Создаем ResponseRecorder
+	w := httptest.NewRecorder()
+
+	// Вызываем хендлер
+	handler.HandleAPIShorten(w, req)
+
+	// Проверяем ответ
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+
+	// Проверяем JSON ответ
+	var response shortenResponse
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	require.NoError(t, err)
+	assert.Equal(t, "http://localhost:8080/abc123", response.Result)
+}
+
+func TestHandleAPIShorten_InvalidJSON(t *testing.T) {
+	mockService := &MockURLService{}
+	handler := NewURLHandler(mockService)
+
+	// Некорректный JSON
+	invalidJSON := []byte(`{"url": "invalid json`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/shorten", bytes.NewReader(invalidJSON))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	handler.HandleAPIShorten(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Contains(t, resp.Header.Get("Content-Type"), "text/plain")
+}
+
+func TestHandleAPIShorten_WrongContentType(t *testing.T) {
+	mockService := &MockURLService{}
+	handler := NewURLHandler(mockService)
+
+	reqBody := shortenRequest{URL: "https://example.com"}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/shorten", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "text/plain") // Неправильный Content-Type
+
+	w := httptest.NewRecorder()
+	handler.HandleAPIShorten(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestHandleAPIShorten_EmptyURL(t *testing.T) {
+	mockService := &MockURLService{}
+	handler := NewURLHandler(mockService)
+
+	reqBody := shortenRequest{URL: ""}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/shorten", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	handler.HandleAPIShorten(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestHandleAPIShorten_DuplicateURL(t *testing.T) {
+	mockService := &MockURLService{
+		CreateShortURLFunc: func(originalURL string) (string, error) {
+			return "", business.ErrDuplicate
+		},
+	}
+
+	handler := NewURLHandler(mockService)
+
+	reqBody := shortenRequest{URL: "https://example.com"}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/shorten", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	handler.HandleAPIShorten(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+func TestHandleAPIShorten_InvalidURL(t *testing.T) {
+	mockService := &MockURLService{
+		CreateShortURLFunc: func(originalURL string) (string, error) {
+			return "", business.ErrInvalidURL
+		},
+	}
+
+	handler := NewURLHandler(mockService)
+
+	reqBody := shortenRequest{URL: "not-a-valid-url"}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/shorten", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	handler.HandleAPIShorten(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// Интеграционный тест с реальным роутером
+func TestAPIShortenRouteIntegration(t *testing.T) {
+	mockService := &MockURLService{
+		CreateShortURLFunc: func(originalURL string) (string, error) {
+			return "http://localhost:8080/test123", nil
+		},
+	}
+
+	handler := NewURLHandler(mockService)
+	router := SetupRouter(handler)
+
+	// Создаем запрос к новому эндпоинту
+	reqBody := shortenRequest{URL: "https://example.com"}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/shorten", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+
+	var response shortenResponse
+	err := json.NewDecoder(resp.Body).Decode(&response)
+	require.NoError(t, err)
+	assert.Equal(t, "http://localhost:8080/test123", response.Result)
 }
 
 func TestURLHandler_HandlePost(t *testing.T) {
@@ -92,7 +276,7 @@ func TestURLHandler_HandleGet(t *testing.T) {
 			name:    "Valid short ID",
 			shortID: "test123",
 			setupMock: func(m *MockURLService) {
-				m.getOriginalURLFunc = func(shortID string) (string, error) {
+				m.GetOriginalURLFunc = func(shortID string) (string, error) {
 					return "https://example.com", nil
 				}
 			},
@@ -103,7 +287,7 @@ func TestURLHandler_HandleGet(t *testing.T) {
 			name:    "Invalid short ID",
 			shortID: "notexist",
 			setupMock: func(m *MockURLService) {
-				m.getOriginalURLFunc = func(shortID string) (string, error) {
+				m.GetOriginalURLFunc = func(shortID string) (string, error) {
 					return "", http.ErrNoLocation
 				}
 			},
@@ -162,7 +346,7 @@ func TestSetupRouter(t *testing.T) {
 	}
 
 	// Тестируем GET маршрут
-	mockService.getOriginalURLFunc = func(shortID string) (string, error) {
+	mockService.GetOriginalURLFunc = func(shortID string) (string, error) {
 		return "https://example.com", nil
 	}
 
