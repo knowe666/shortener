@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -79,6 +80,14 @@ func NewURLHandler(service URLService) *URLHandler {
 	return &URLHandler{service: service}
 }
 
+type shortenRequest struct {
+	URL string `json:"url"`
+}
+
+type shortenResponse struct {
+	Result string `json:"result"`
+}
+
 func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -116,6 +125,53 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(shortURL))
 }
 
+func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Content-Type") != "application/json" {
+		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+
+	var req shortenRequest
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	if req.URL == "" {
+		http.Error(w, "URL is required", http.StatusBadRequest)
+		return
+	}
+
+	shortURL, err := h.service.CreateShortURL(req.URL)
+	if err != nil {
+		switch {
+		case errors.Is(err, business.ErrInvalidURL):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, business.ErrDuplicate):
+			http.Error(w, err.Error(), http.StatusConflict)
+		case errors.Is(err, business.ErrFailedToGenerateID):
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		case errors.Is(err, business.ErrFailedToSave):
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		default:
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	response := shortenResponse{
+		Result: shortURL,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logger.Error("Failed to encode JSON response", zap.Error(err))
+	}
+}
+
 func (h *URLHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 	shortID := strings.TrimPrefix(r.URL.Path, "/")
 	if shortID == "" {
@@ -123,7 +179,6 @@ func (h *URLHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Вызов бизнес-логики
 	originalURL, err := h.service.GetOriginalURL(shortID)
 	if err != nil {
 		http.Error(w, "Short URL not found", http.StatusNotFound)
@@ -135,9 +190,12 @@ func (h *URLHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 
 func SetupRouter(handler *URLHandler) *chi.Mux {
 	r := chi.NewRouter()
-	r.Use(middleware.Logger)
+	r.Use(LoggingMiddleware)
 	r.Use(middleware.Recoverer)
+	// Эндпоинты
 	r.Post("/", handler.HandlePost)
+	r.Post("/api/shorten", handler.HandleAPIShorten)
 	r.Get("/{id}", handler.HandleGet)
+
 	return r
 }
