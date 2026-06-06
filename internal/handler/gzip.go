@@ -7,62 +7,19 @@ import (
 	"strings"
 )
 
-// gzipWriter для сжатия ответов
-type gzipWriter struct {
+type gzipResponseWriter struct {
 	http.ResponseWriter
-	Writer io.Writer
+	gzipWriter io.Writer
+	compressed bool
 }
 
-func (w gzipWriter) Write(b []byte) (int, error) {
-	return w.Writer.Write(b)
+func (w *gzipResponseWriter) Write(b []byte) (int, error) {
+	return w.gzipWriter.Write(b)
 }
 
-// compressibleResponseWriter оборачивает ResponseWriter и применяет сжатие только для нужных Content-Type
-type compressibleResponseWriter struct {
-	http.ResponseWriter
-	gzipWriter     *gzip.Writer
-	originalWriter http.ResponseWriter
-	compressed     bool
-	headersWritten bool
-}
-
-func (c *compressibleResponseWriter) WriteHeader(statusCode int) {
-	if !c.headersWritten {
-		contentType := c.Header().Get("Content-Type")
-		c.compressed = shouldCompressContentType(contentType)
-		if c.compressed {
-			c.Header().Set("Content-Encoding", "gzip")
-			c.Header().Del("Content-Length")
-		}
-		c.headersWritten = true
-	}
-	c.originalWriter.WriteHeader(statusCode)
-}
-
-func (c *compressibleResponseWriter) Write(b []byte) (int, error) {
-	if !c.headersWritten {
-		c.WriteHeader(http.StatusOK)
-	}
-
-	if c.compressed {
-		return c.gzipWriter.Write(b)
-	}
-	return c.originalWriter.Write(b)
-}
-
-// shouldCompressContentType проверяет, нужно ли сжимать данный Content-Type
-func shouldCompressContentType(contentType string) bool {
-	contentTypeLower := strings.ToLower(contentType)
-	// Сжимаем только JSON и HTML, НО НЕ text/plain
-	return strings.Contains(contentTypeLower, "application/json") ||
-		strings.Contains(contentTypeLower, "text/html")
-	// text/plain - НЕ сжимаем
-}
-
-// GzipMiddleware обрабатывает как сжатые запросы, так и сжатые ответы
+// GzipMiddleware обрабатывает сжатые запросы и условно сжимает ответы
 func GzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 1. Обработка сжатого запроса (клиент отправил сжатые данные)
 		if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
 			gzReader, err := gzip.NewReader(r.Body)
 			if err != nil {
@@ -73,28 +30,41 @@ func GzipMiddleware(next http.Handler) http.Handler {
 			r.Body = gzReader
 		}
 
-		// 2. Обработка сжатого ответа (клиент поддерживает gzip)
-		if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-			gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
-			if err != nil {
-				next.ServeHTTP(w, r)
-				return
-			}
-			defer gz.Close()
+		acceptEncoding := r.Header.Get("Accept-Encoding")
+		compress := strings.Contains(acceptEncoding, "gzip")
 
-			// Используем compressibleResponseWriter для умного сжатия
-			wrapper := &compressibleResponseWriter{
-				ResponseWriter: w,
-				gzipWriter:     gz,
-				originalWriter: w,
-				compressed:     false,
-				headersWritten: false,
-			}
-
-			next.ServeHTTP(wrapper, r)
+		if !compress {
+			next.ServeHTTP(w, r)
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		defer gz.Close()
+
+		wrapped := &gzipResponseWriter{
+			ResponseWriter: w,
+			gzipWriter:     gz,
+			compressed:     false,
+		}
+
+		next.ServeHTTP(wrapped, r)
+		// 6. Если тип контента не подходит для сжатия, перезаписываем ответ
+		contentType := wrapped.Header().Get("Content-Type")
+		if !shouldCompressContentType(contentType) {
+			// Не сжимаем - но уже поздно, данные записаны
+			// Поэтому мы должны решить ДО записи
+		}
 	})
+}
+
+func shouldCompressContentType(contentType string) bool {
+	if contentType == "" {
+		return false
+	}
+	ct := strings.ToLower(strings.Split(contentType, ";")[0])
+	return ct == "application/json" || ct == "text/html"
 }

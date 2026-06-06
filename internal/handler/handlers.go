@@ -50,6 +50,7 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ВАЖНО: Устанавливаем Content-Type ПЕРЕД записью ответа
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(shortURL))
