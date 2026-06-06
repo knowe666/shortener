@@ -135,7 +135,7 @@ func (h *URLHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 
 func SetupRouter(handler *URLHandler) *chi.Mux {
 	r := chi.NewRouter()
-	r.Use(middleware.Logger)
+	r.Use(LoggingMiddleware)
 	r.Use(middleware.Recoverer)
 	r.Post("/", handler.HandlePost)
 	r.Get("/{id}", handler.HandleGet)
