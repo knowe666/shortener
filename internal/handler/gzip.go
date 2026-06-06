@@ -29,8 +29,8 @@ type compressibleResponseWriter struct {
 func (c *compressibleResponseWriter) WriteHeader(statusCode int) {
 	if !c.headersWritten {
 		contentType := c.Header().Get("Content-Type")
-		if shouldCompressContentType(contentType) {
-			c.compressed = true
+		c.compressed = shouldCompressContentType(contentType)
+		if c.compressed {
 			c.Header().Set("Content-Encoding", "gzip")
 			c.Header().Del("Content-Length")
 		}
@@ -53,8 +53,10 @@ func (c *compressibleResponseWriter) Write(b []byte) (int, error) {
 // shouldCompressContentType проверяет, нужно ли сжимать данный Content-Type
 func shouldCompressContentType(contentType string) bool {
 	contentTypeLower := strings.ToLower(contentType)
+	// Сжимаем только JSON и HTML, НО НЕ text/plain
 	return strings.Contains(contentTypeLower, "application/json") ||
 		strings.Contains(contentTypeLower, "text/html")
+	// text/plain - НЕ сжимаем
 }
 
 // GzipMiddleware обрабатывает как сжатые запросы, так и сжатые ответы

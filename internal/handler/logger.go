@@ -26,7 +26,9 @@ func InitLogger() error {
 // GetLogger возвращает глобальный логгер
 func GetLogger() *zap.Logger {
 	if logger == nil {
-		InitLogger()
+		if err := InitLogger(); err != nil {
+			log.Printf("Failed to init logger: %v", err)
+		}
 	}
 	return logger
 }
