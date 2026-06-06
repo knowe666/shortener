@@ -32,6 +32,8 @@ func (m *MockURLService) GetOriginalURL(shortID string) (string, error) {
 }
 
 func TestURLHandler_HandlePost(t *testing.T) {
+	InitLogger()
+
 	tests := []struct {
 		name           string
 		requestBody    string
@@ -52,6 +54,28 @@ func TestURLHandler_HandlePost(t *testing.T) {
 			setupMock:      nil,
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   "Empty URL\n",
+		},
+		{
+			name:        "Duplicate URL",
+			requestBody: "https://duplicate.com",
+			setupMock: func(m *MockURLService) {
+				m.createShortURLFunc = func(originalURL string) (string, error) {
+					return "", business.ErrDuplicate
+				}
+			},
+			expectedStatus: http.StatusConflict,
+			expectedBody:   business.ErrDuplicate.Error() + "\n",
+		},
+		{
+			name:        "Invalid URL",
+			requestBody: "invalid-url",
+			setupMock: func(m *MockURLService) {
+				m.createShortURLFunc = func(originalURL string) (string, error) {
+					return "", business.ErrInvalidURL
+				}
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   business.ErrInvalidURL.Error() + "\n",
 		},
 	}
 
@@ -81,6 +105,8 @@ func TestURLHandler_HandlePost(t *testing.T) {
 }
 
 func TestURLHandler_HandleGet(t *testing.T) {
+	InitLogger()
+
 	tests := []struct {
 		name             string
 		shortID          string
@@ -104,7 +130,7 @@ func TestURLHandler_HandleGet(t *testing.T) {
 			shortID: "notexist",
 			setupMock: func(m *MockURLService) {
 				m.getOriginalURLFunc = func(shortID string) (string, error) {
-					return "", http.ErrNoLocation
+					return "", business.ErrNotFound
 				}
 			},
 			expectedStatus:   http.StatusNotFound,
@@ -148,6 +174,8 @@ func TestURLHandler_HandleGet(t *testing.T) {
 }
 
 func TestSetupRouter(t *testing.T) {
+	InitLogger()
+
 	mockService := &MockURLService{}
 	handler := NewURLHandler(mockService)
 	router := SetupRouter(handler)
@@ -175,8 +203,48 @@ func TestSetupRouter(t *testing.T) {
 	}
 }
 
+func TestSetupRouter_WithGzip(t *testing.T) {
+	InitLogger()
+
+	mockService := &MockURLService{}
+	handler := NewURLHandler(mockService)
+	router := SetupRouter(handler)
+
+	// Тестируем POST с gzip поддержкой
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString("https://example.com"))
+	req.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// POST ответ - text/plain, не должен сжиматься
+	if w.Header().Get("Content-Encoding") == "gzip" {
+		t.Errorf("POST response should not be compressed")
+	}
+
+	// Создаём хендлер для JSON ответа
+	jsonHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"test":"data"}`))
+	})
+
+	jsonRouter := SetupRouter(handler)
+	jsonRouter.Get("/json", jsonHandler)
+
+	req = httptest.NewRequest(http.MethodGet, "/json", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	w = httptest.NewRecorder()
+	jsonRouter.ServeHTTP(w, req)
+
+	// JSON ответ должен сжиматься
+	if w.Header().Get("Content-Encoding") != "gzip" {
+		t.Errorf("JSON response should be compressed when client supports gzip")
+	}
+}
+
 // Интеграционный тест
 func TestIntegration_CompleteFlow(t *testing.T) {
+	InitLogger()
+
 	// Создаём реальные компоненты
 	repo := repository.NewInMemoryURLRepository()
 	service := business.NewURLShortenerService(repo, "http://localhost:8080")
@@ -185,29 +253,37 @@ func TestIntegration_CompleteFlow(t *testing.T) {
 	}
 	handler := NewURLHandler(service)
 	router := SetupRouter(handler)
+
 	// 1. Создаём короткую ссылку
 	testURL := "https://integration-test.com"
 	reqBody := bytes.NewBufferString(testURL)
 	req := httptest.NewRequest(http.MethodPost, "/", reqBody)
+	req.Header.Set("Accept-Encoding", "gzip")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusCreated {
 		t.Errorf("Create status = %v, want %v", w.Code, http.StatusCreated)
 	}
+
 	shortURL := w.Body.String()
+
 	// 2. Извлекаем ID из короткой ссылки
 	shortID := strings.TrimPrefix(shortURL, "http://localhost:8080/")
 	if shortID == "" {
 		t.Fatal("Failed to extract short ID from URL:", shortURL)
 	}
+
 	// 3. Переходим по короткой ссылке
 	req = httptest.NewRequest(http.MethodGet, "/"+shortID, nil)
+	req.Header.Set("Accept-Encoding", "gzip")
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
+
 	if w.Code != http.StatusTemporaryRedirect {
 		t.Errorf("Redirect status = %v, want %v", w.Code, http.StatusTemporaryRedirect)
 	}
+
 	location := w.Header().Get("Location")
 	if location != "https://integration-test.com" {
 		t.Errorf("Redirect location = %v, want %v", location, "https://integration-test.com")

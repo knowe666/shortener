@@ -1,0 +1,23 @@
+package transport
+
+import (
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+)
+
+// URLService интерфейс для связи со слоем бизнес-логики
+type URLService interface {
+	CreateShortURL(originalURL string) (string, error)
+	GetOriginalURL(shortID string) (string, error)
+}
+
+// SetupRouter настраивает и возвращает маршрутизатор
+func SetupRouter(handler *URLHandler) *chi.Mux {
+	r := chi.NewRouter()
+	r.Use(LoggingMiddleware)
+	r.Use(GzipMiddleware)
+	r.Use(middleware.Recoverer)
+	r.Post("/", handler.HandlePost)
+	r.Get("/{id}", handler.HandleGet)
+	return r
+}

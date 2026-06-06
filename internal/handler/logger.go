@@ -1,13 +1,44 @@
 package transport
 
 import (
+	"log"
 	"net/http"
 	"time"
 
 	"go.uber.org/zap"
 )
 
-// responseWriterWrapper оборачивает http.ResponseWriter для захвата статуса и размера ответа
+var logger *zap.Logger
+var sugar *zap.SugaredLogger
+
+// InitLogger инициализирует глобальный логгер
+func InitLogger() error {
+	var err error
+	logger, err = zap.NewProduction()
+	if err != nil {
+		log.Fatal("Failed to initialize logger:", err)
+		return err
+	}
+	sugar = logger.Sugar()
+	return nil
+}
+
+// GetLogger возвращает глобальный логгер
+func GetLogger() *zap.Logger {
+	if logger == nil {
+		InitLogger()
+	}
+	return logger
+}
+
+// GetSugaredLogger возвращает sugared логгер
+func GetSugaredLogger() *zap.SugaredLogger {
+	if sugar == nil {
+		InitLogger()
+	}
+	return sugar
+} // responseWriterWrapper оборачивает http.ResponseWriter для захвата статуса и размера ответа
+
 type responseWriterWrapper struct {
 	http.ResponseWriter
 	statusCode int

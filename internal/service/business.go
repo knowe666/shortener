@@ -46,6 +46,7 @@ var (
 	ErrFailedToGenerateID = errors.New("failed to generate unique short ID (possible ID space exhaustion)")
 	ErrDuplicate          = errors.New("url already exists")
 	ErrFailedToSave       = errors.New("failed to save URL")
+	ErrNotFound           = errors.New("short URL not found")
 )
 
 // генерация коротких ссылок - бизнес-логика
