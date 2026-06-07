@@ -14,8 +14,8 @@ type URLService interface {
 // SetupRouter настраивает и возвращает маршрутизатор
 func SetupRouter(handler *URLHandler) *chi.Mux {
 	r := chi.NewRouter()
-	r.Use(LoggingMiddleware)
-	r.Use(GzipMiddleware)
+	r.Use(loggingmiddleware)
+	r.Use(gzipHandle)
 	r.Use(middleware.Recoverer)
 	r.Post("/", handler.HandlePost)
 	r.Get("/{id}", handler.HandleGet)
