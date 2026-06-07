@@ -7,64 +7,63 @@ import (
 	"strings"
 )
 
-type gzipResponseWriter struct {
+type gzipWriter struct {
 	http.ResponseWriter
-	gzipWriter io.Writer
-	compressed bool
+	Writer io.Writer
 }
 
-func (w *gzipResponseWriter) Write(b []byte) (int, error) {
-	return w.gzipWriter.Write(b)
+func (w *gzipWriter) Write(b []byte) (int, error) {
+	return w.Writer.Write(b)
 }
 
-// GzipMiddleware обрабатывает сжатые запросы и условно сжимает ответы
-func GzipMiddleware(next http.Handler) http.Handler {
+type customResponseWriter struct {
+	http.ResponseWriter
+	gz *gzip.Writer
+}
+
+func (crw *customResponseWriter) Write(b []byte) (int, error) {
+	contentType := crw.Header().Get("Content-Type")
+	// Проверяем, нужно ли сжимать (application/json или text/html)
+	if strings.Contains(contentType, "application/json") ||
+		strings.Contains(contentType, "text/html") {
+		return crw.gz.Write(b)
+	}
+	// Если тип не подходит, пишем без сжатия
+	return crw.ResponseWriter.Write(b)
+}
+
+func gzipHandle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
 			gzReader, err := gzip.NewReader(r.Body)
 			if err != nil {
-				http.Error(w, "Failed to decompress request body", http.StatusBadRequest)
+				http.Error(w, "Invalid gzip data", http.StatusBadRequest)
 				return
 			}
 			defer gzReader.Close()
-			r.Body = gzReader
+			r.Body = io.NopCloser(gzReader)
+			r.Header.Del("Content-Encoding")
 		}
-
-		acceptEncoding := r.Header.Get("Accept-Encoding")
-		compress := strings.Contains(acceptEncoding, "gzip")
-
-		if !compress {
-			next.ServeHTTP(w, r)
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r) // если gzip не поддерживается, передаём управление дальше без изменений
 			return
 		}
-
 		gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
 		if err != nil {
-			next.ServeHTTP(w, r)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		defer gz.Close()
 
-		wrapped := &gzipResponseWriter{
+		// Создаём обёртку для проверки Content-Type
+		crw := &customResponseWriter{
 			ResponseWriter: w,
-			gzipWriter:     gz,
-			compressed:     false,
+			gz:             gz,
 		}
 
-		next.ServeHTTP(wrapped, r)
-		// 6. Если тип контента не подходит для сжатия, перезаписываем ответ
-		contentType := wrapped.Header().Get("Content-Type")
-		if !shouldCompressContentType(contentType) {
-			// Не сжимаем - но уже поздно, данные записаны
-			// Поэтому мы должны решить ДО записи
-		}
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Del("Content-Length")
+
+		next.ServeHTTP(crw, r)
 	})
-}
-
-func shouldCompressContentType(contentType string) bool {
-	if contentType == "" {
-		return false
-	}
-	ct := strings.ToLower(strings.Split(contentType, ";")[0])
-	return ct == "application/json" || ct == "text/html"
 }

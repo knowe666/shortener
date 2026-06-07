@@ -69,7 +69,7 @@ func TestGzipMiddleware_Compression(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := GzipMiddleware(tt.handler)
+			handler := gzipHandle(tt.handler)
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			req.Header.Set("Accept-Encoding", tt.acceptEncoding)
@@ -132,7 +132,7 @@ func TestGzipMiddleware_Decompression(t *testing.T) {
 	req.Header.Set("Content-Encoding", "gzip")
 
 	w := httptest.NewRecorder()
-	handler := GzipMiddleware(testHandler)
+	handler := gzipHandle(testHandler)
 	handler.ServeHTTP(w, req)
 
 	resp := w.Result()
