@@ -54,16 +54,8 @@ func gzipHandle(next http.Handler) http.Handler {
 			return
 		}
 		defer gz.Close()
-
-		// Создаём обёртку для проверки Content-Type
-		crw := &customResponseWriter{
-			ResponseWriter: w,
-			gz:             gz,
-		}
-
 		w.Header().Set("Content-Encoding", "gzip")
 		w.Header().Del("Content-Length")
-
-		next.ServeHTTP(crw, r)
+		next.ServeHTTP(&customResponseWriter{ResponseWriter: w, gz: gz}, r)
 	})
 }
