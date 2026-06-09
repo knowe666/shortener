@@ -3,6 +3,7 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 )
 
@@ -65,4 +66,12 @@ func (r *InMemoryURLRepository) Get(shortID string) (string, error) {
 		return "", ErrNotFoundID
 	}
 	return originalURL, nil
+}
+
+func (r *InMemoryURLRepository) GetAll() map[string]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	result := make(map[string]string)
+	maps.Copy(result, r.urls)
+	return result
 }

@@ -22,8 +22,22 @@ func main() {
 
 	log.Printf("Server starting on %s", cfg.ServerAddress)
 	log.Printf("Base URL for short links: %s", cfg.BaseURL)
+	log.Printf("File storage path: %s", cfg.FileStoragePath)
 
-	urlRepo := repository.NewInMemoryURLRepository()
+	// Выбираем тип репозитория
+	var urlRepo repository.URLRepository
+	if cfg.FileStoragePath != "" {
+		fileRepo, err := repository.NewFileURLRepository(cfg.FileStoragePath)
+		if err != nil {
+			log.Fatalf("Failed to initialize file repository: %v", err)
+		}
+		urlRepo = fileRepo
+		log.Printf("Using file storage: %s", cfg.FileStoragePath)
+	} else {
+		urlRepo = repository.NewInMemoryURLRepository()
+		log.Printf("Using in-memory storage")
+	}
+
 	urlService := business.NewURLShortenerService(urlRepo, cfg.BaseURL)
 	urlHandler := transport.NewURLHandler(urlService)
 	router := transport.SetupRouter(urlHandler)
