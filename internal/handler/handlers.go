@@ -116,17 +116,18 @@ func (h *URLHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 	// Получаем ID из пути
 	shortID := strings.TrimPrefix(r.URL.Path, "/")
 
-	// Логируем для отладки
-	log.Printf("HandleGet: path=%s, shortID=%s", r.URL.Path, shortID)
+	// Важное логирование
+	log.Printf("HandleGet: full path=%s, shortID=%s", r.URL.Path, shortID)
 
 	if shortID == "" {
+		log.Printf("Empty shortID, returning 400")
 		http.Error(w, "Missing ID", http.StatusBadRequest)
 		return
 	}
 
 	originalURL, err := h.service.GetOriginalURL(shortID)
 	if err != nil {
-		log.Printf("GetOriginalURL error: %v", err)
+		log.Printf("GetOriginalURL error for ID '%s': %v", shortID, err)
 		http.Error(w, "Short URL not found", http.StatusNotFound)
 		return
 	}
@@ -137,7 +138,7 @@ func (h *URLHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Redirecting to: %s", originalURL)
-	// Используем http.StatusTemporaryRedirect (307) как ожидает тест
-	http.Redirect(w, r, originalURL, http.StatusTemporaryRedirect)
+	log.Printf("Redirecting from %s to %s", shortID, originalURL)
+	w.Header().Set("Location", originalURL)
+	w.WriteHeader(http.StatusTemporaryRedirect)
 }
