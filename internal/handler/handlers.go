@@ -15,10 +15,14 @@ import (
 // URLHandler обработчик HTTP запросов
 type URLHandler struct {
 	service URLService
+	logger  *zap.Logger
 }
 
 func NewURLHandler(service URLService) *URLHandler {
-	return &URLHandler{service: service}
+	return &URLHandler{
+		service: service,
+		logger:  GetLogger(),
+	}
 }
 
 type shortenRequest struct {
@@ -38,6 +42,8 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 
 	log.Print("body " + string(body))
 	originalURL := strings.TrimSpace(string(body))
+	h.logger.Info("POST request", zap.String("url", originalURL))
+
 	if originalURL == "" {
 		http.Error(w, "Empty URL", http.StatusBadRequest)
 		return
@@ -45,6 +51,7 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 
 	shortURL, err := h.service.CreateShortURL(originalURL)
 	if err != nil {
+		h.logger.Error("Failed to create short URL", zap.Error(err))
 		switch {
 		case errors.Is(err, business.ErrInvalidURL):
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -60,6 +67,7 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logger.Info("Short URL created", zap.String("short_url", shortURL))
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(shortURL))
@@ -115,30 +123,22 @@ func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
 func (h *URLHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 	// Получаем ID из пути
 	shortID := strings.TrimPrefix(r.URL.Path, "/")
-
-	// Важное логирование
-	log.Printf("HandleGet: full path=%s, shortID=%s", r.URL.Path, shortID)
+	h.logger.Info("GET request", zap.String("path", r.URL.Path), zap.String("shortID", shortID))
 
 	if shortID == "" {
-		log.Printf("Empty shortID, returning 400")
+		h.logger.Warn("Empty short ID")
 		http.Error(w, "Missing ID", http.StatusBadRequest)
 		return
 	}
 
 	originalURL, err := h.service.GetOriginalURL(shortID)
 	if err != nil {
-		log.Printf("GetOriginalURL error for ID '%s': %v", shortID, err)
+		h.logger.Warn("Short URL not found", zap.String("shortID", shortID), zap.Error(err))
 		http.Error(w, "Short URL not found", http.StatusNotFound)
 		return
 	}
 
-	if originalURL == "" {
-		log.Printf("Original URL is empty for ID: %s", shortID)
-		http.Error(w, "Short URL not found", http.StatusNotFound)
-		return
-	}
-
-	log.Printf("Redirecting from %s to %s", shortID, originalURL)
+	h.logger.Info("Redirecting", zap.String("shortID", shortID), zap.String("originalURL", originalURL))
 	w.Header().Set("Location", originalURL)
 	w.WriteHeader(http.StatusTemporaryRedirect)
 }
