@@ -6,30 +6,40 @@ import (
 	"os"
 )
 
-// Config хранит все настройки приложения
+// Config хранит все конфигурационные параметры приложения
 type Config struct {
-	ServerAddress string // адрес запуска HTTP-сервера (флаг -a)
-	BaseURL       string // базовый адрес результирующего сокращённого URL (флаг -b)
+	ServerAddress   string
+	BaseURL         string
+	FileStoragePath string
 }
 
-// NewConfig создаёт новую конфигурацию из аргументов командной строки
+// NewConfig инициализирует конфигурацию из флагов командной строки
 func NewConfig() (*Config, error) {
-	// Определяем флаги со значениями по умолчанию
-	var (
-		serverAddr = flag.String("a", "localhost:8080", "адрес запуска HTTP-сервера")
-		baseURL    = flag.String("b", "http://localhost:8080", "базовый адрес результирующего сокращённого URL")
-	)
-
-	// Разбираем аргументы командной строки
+	serverAddress := flag.String("a", "localhost:8080", "адрес запуска HTTP-сервера")
+	baseURL := flag.String("b", "http://localhost:8080", "базовый адрес результирующего сокращённого URL")
+	filePath := flag.String("f", "", "путь к файлу для хранения URL (JSON)")
 	flag.Parse()
-
-	// Создаём и возвращаем конфиг
-	cfg := &Config{
-		ServerAddress: *serverAddr,
-		BaseURL:       *baseURL,
+	if serverAddressEnv := os.Getenv("SERVER_ADDRESS"); serverAddressEnv != "" {
+		*serverAddress = serverAddressEnv
+	}
+	if baseURLEnv := os.Getenv("BASE_URL"); baseURLEnv != "" {
+		*baseURL = baseURLEnv
+	}
+	if filePathEnv := os.Getenv("FILE_STORAGE_PATH"); filePathEnv != "" {
+		*filePath = filePathEnv
 	}
 
-	// Валидация конфигурации
+	// Значение по умолчанию для файла, если не указано
+	if *filePath == "" {
+		*filePath = "storage.json"
+	}
+
+	cfg := &Config{
+		ServerAddress:   *serverAddress,
+		BaseURL:         *baseURL,
+		FileStoragePath: *filePath,
+	}
+
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
@@ -37,33 +47,15 @@ func NewConfig() (*Config, error) {
 	return cfg, nil
 }
 
-// NewConfigWithArgs создаёт конфигурацию с пользовательскими аргументами (для тестирования)
-func NewConfigWithArgs(args []string) (*Config, error) {
-	// Сохраняем оригинальные аргументы
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-
-	// Устанавливаем тестовые аргументы
-	os.Args = args
-
-	return NewConfig()
-}
-
-// Validate проверяет корректность конфигурации
 func (c *Config) Validate() error {
 	if c.ServerAddress == "" {
 		return fmt.Errorf("server address cannot be empty")
 	}
-
 	if c.BaseURL == "" {
 		return fmt.Errorf("base URL cannot be empty")
 	}
-
+	if c.FileStoragePath == "" {
+		return fmt.Errorf("file storage path cannot be empty")
+	}
 	return nil
-}
-
-// String возвращает строковое представление конфигурации
-func (c *Config) String() string {
-	return fmt.Sprintf("Config{ServerAddress: %s, BaseURL: %s}",
-		c.ServerAddress, c.BaseURL)
 }
