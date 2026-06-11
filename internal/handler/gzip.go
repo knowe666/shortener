@@ -47,18 +47,24 @@ func gzipHandle(next http.Handler) http.Handler {
 			// Удаляем заголовок, чтобы дальше handler не знал о сжатии
 			r.Header.Del("Content-Encoding")
 		}
-		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-			next.ServeHTTP(w, r) // если gzip не поддерживается, передаём управление дальше без изменений
+
+		// Проверяем, поддерживает ли клиент gzip для ответа
+		if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			defer gz.Close()
+
+			w.Header().Set("Content-Encoding", "gzip")
+			w.Header().Del("Content-Length")
+
+			// Оборачиваем ResponseWriter для сжатия ответа
+			next.ServeHTTP(&customResponseWriter{ResponseWriter: w, gz: gz}, r)
 			return
 		}
-		gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer gz.Close()
-		w.Header().Set("Content-Encoding", "gzip")
-		w.Header().Del("Content-Length")
-		next.ServeHTTP(&customResponseWriter{ResponseWriter: w, gz: gz}, r)
+		// Если gzip не нужен, просто передаём дальше
+		next.ServeHTTP(w, r)
 	})
 }
