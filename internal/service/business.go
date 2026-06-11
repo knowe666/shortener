@@ -51,11 +51,15 @@ var (
 
 // генерация коротких ссылок - бизнес-логика
 func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error) {
-	// Валидация URL
-	if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
-		return "", fmt.Errorf("invalid URL: must start with http:// or https://")
-	}
 	originalURL = strings.TrimSpace(originalURL)
+	// Валидация URL
+	if originalURL == "" {
+		return "", ErrInvalidURL
+	}
+	// Проверяем, что это HTTP или HTTPS URL
+	if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
+		return "", ErrInvalidURL
+	}
 	s.mu.Lock() // для предотвращения race condition
 	oldshortID, exists := s.cache[originalURL]
 	if exists {

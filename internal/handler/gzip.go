@@ -22,6 +22,7 @@ type customResponseWriter struct {
 }
 
 func (crw *customResponseWriter) Write(b []byte) (int, error) {
+	// Проверяем Content-Type для сжатия
 	contentType := crw.Header().Get("Content-Type")
 	// Проверяем, нужно ли сжимать (application/json или text/html)
 	if strings.Contains(contentType, "application/json") ||
