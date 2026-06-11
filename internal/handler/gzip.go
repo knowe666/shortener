@@ -34,7 +34,8 @@ func (crw *customResponseWriter) Write(b []byte) (int, error) {
 
 func gzipHandle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
+		// Проверяем, есть ли gzip в Content-Encoding ТОЛЬКО если тело не пустое
+		if r.Header.Get("Content-Encoding") == "gzip" {
 			gzReader, err := gzip.NewReader(r.Body)
 			if err != nil {
 				http.Error(w, "Invalid gzip data", http.StatusBadRequest)
@@ -42,6 +43,7 @@ func gzipHandle(next http.Handler) http.Handler {
 			}
 			defer gzReader.Close()
 			r.Body = io.NopCloser(gzReader)
+			// Удаляем заголовок, чтобы дальше handler не знал о сжатии
 			r.Header.Del("Content-Encoding")
 		}
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
