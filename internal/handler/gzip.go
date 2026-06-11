@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"go.uber.org/zap"
 )
 
 type gzipWriter struct {
@@ -35,10 +37,20 @@ func (crw *customResponseWriter) Write(b []byte) (int, error) {
 
 func gzipHandle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Проверяем, есть ли gzip в Content-Encoding ТОЛЬКО если тело не пустое
-		if r.Header.Get("Content-Encoding") == "gzip" {
+		logger := GetLogger()
+
+		// Логируем заголовки для отладки
+		logger.Info("Gzip middleware",
+			zap.String("Content-Encoding", r.Header.Get("Content-Encoding")),
+			zap.String("Accept-Encoding", r.Header.Get("Accept-Encoding")))
+
+		// Распаковка тела запроса
+		contentEncoding := r.Header.Get("Content-Encoding")
+		if contentEncoding == "gzip" {
+			logger.Info("Decompressing request body")
 			gzReader, err := gzip.NewReader(r.Body)
 			if err != nil {
+				logger.Error("Failed to create gzip reader", zap.Error(err))
 				http.Error(w, "Invalid gzip data", http.StatusBadRequest)
 				return
 			}
@@ -50,6 +62,7 @@ func gzipHandle(next http.Handler) http.Handler {
 
 		// Проверяем, поддерживает ли клиент gzip для ответа
 		if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			logger.Info("Compressing response")
 			gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
