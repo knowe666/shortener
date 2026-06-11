@@ -18,6 +18,7 @@ func SetupRouter(handler *URLHandler) *chi.Mux {
 	r.Use(gzipHandle)
 	r.Use(middleware.Recoverer)
 	r.Post("/", handler.HandlePost)
+	r.Post("/api/shorten", handler.HandleAPIShorten)
 	r.Get("/{id}", handler.HandleGet)
 	return r
 }
