@@ -13,6 +13,11 @@ type URLRepository interface {
 	Get(shortID string) (string, error)
 }
 
+// Pingable интерфейс для репозиториев, поддерживающих проверку соединения
+type Pingable interface {
+	Ping() error
+}
+
 var (
 	ErrNotFoundID  = errors.New("short URL not found for ID")
 	ErrEmptyID     = errors.New("short ID cannot be empty")
@@ -22,8 +27,8 @@ var (
 // InMemoryURLRepository реализует URLRepository с хранением в памяти
 type InMemoryURLRepository struct {
 	mu    sync.Mutex
-	urls  map[string]string // shortID -> originalURL
-	cache map[string]string // shortID -> originalURL (cached)
+	urls  map[string]string
+	cache map[string]string
 }
 
 // NewInMemoryURLRepository создаёт новый экземпляр репозитория
@@ -74,4 +79,9 @@ func (r *InMemoryURLRepository) GetAll() map[string]string {
 	result := make(map[string]string)
 	maps.Copy(result, r.urls)
 	return result
+}
+
+// Ping для in-memory репозитория всегда возвращает nil (всегда работает)
+func (r *InMemoryURLRepository) Ping() error {
+	return nil
 }

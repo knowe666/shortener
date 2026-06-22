@@ -20,5 +20,7 @@ func SetupRouter(handler *URLHandler) *chi.Mux {
 	r.Post("/", handler.HandlePost)
 	r.Post("/api/shorten", handler.HandleAPIShorten)
 	r.Get("/{id}", handler.HandleGet)
+	r.Get("/ping", handler.HandlePing) // Добавляем эндпоинт ping
+
 	return r
 }
