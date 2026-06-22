@@ -11,6 +11,9 @@ import (
 )
 
 func main() {
+	if err := transport.InitLogger(); err != nil {
+		log.Fatal("Failed to initialize logger:", err)
+	}
 	// Загрузка конфигурации
 	cfg, err := config.NewConfig()
 	if err != nil {
@@ -19,14 +22,24 @@ func main() {
 
 	log.Printf("Server starting on %s", cfg.ServerAddress)
 	log.Printf("Base URL for short links: %s", cfg.BaseURL)
+	log.Printf("File storage path: %s", cfg.FileStoragePath)
 
-	// Инициализация слоя данных
-	urlRepo := repository.NewInMemoryURLRepository()
-	// Инициализация слоя бизнес-логики (внедрение зависимости репозитория)
+	// Выбираем тип репозитория
+	var urlRepo repository.URLRepository
+	if cfg.FileStoragePath != "" {
+		fileRepo, err := repository.NewFileURLRepository(cfg.FileStoragePath)
+		if err != nil {
+			log.Fatalf("Failed to initialize file repository: %v", err)
+		}
+		urlRepo = fileRepo
+		log.Printf("Using file storage: %s", cfg.FileStoragePath)
+	} else {
+		urlRepo = repository.NewInMemoryURLRepository()
+		log.Printf("Using in-memory storage")
+	}
+
 	urlService := business.NewURLShortenerService(urlRepo, cfg.BaseURL)
-	// Инициализация слоя транспорта (внедрение зависимости бизнес-логики)
 	urlHandler := transport.NewURLHandler(urlService)
-	// Настройка роутера и запуск сервера
 	router := transport.SetupRouter(urlHandler)
 
 	if err := http.ListenAndServe(cfg.ServerAddress, router); err != nil {
