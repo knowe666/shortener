@@ -20,6 +20,12 @@ type URLRepository interface {
 	Get(shortID string) (string, error)
 }
 
+// ExtendedURLRepository - расширенный интерфейс для проверки дубликатов
+type ExtendedURLRepository interface {
+	URLRepository
+	GetByOriginalURL(originalURL string) (string, error)
+}
+
 // URLShortenerService - сервис бизнес-логики
 type URLShortenerService struct {
 	repo    URLRepository
@@ -61,12 +67,23 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 		return "", ErrInvalidURL
 	}
 	s.mu.Lock() // для предотвращения race condition
-	oldshortID, exists := s.cache[originalURL]
+	oldShortID, exists := s.cache[originalURL]
 	if exists {
 		s.mu.Unlock()
-		return url.JoinPath(s.baseURL, oldshortID) // Возвращаем существующую короткую ссылку
+		return url.JoinPath(s.baseURL, oldShortID)
 	}
 	s.mu.Unlock()
+
+	// Проверяем в репозитории (если поддерживает)
+	if extRepo, ok := s.repo.(ExtendedURLRepository); ok {
+		if shortID, err := extRepo.GetByOriginalURL(originalURL); err == nil {
+			s.mu.Lock()
+			s.cache[originalURL] = shortID
+			s.mu.Unlock()
+			return url.JoinPath(s.baseURL, shortID)
+		}
+	}
+
 	// Генерируем новый ID
 	for range maxGenerateAttempts {
 		id, err := generateShortID()
