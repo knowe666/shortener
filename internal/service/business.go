@@ -55,6 +55,15 @@ var (
 	ErrNotFound           = errors.New("short URL not found")
 )
 
+// buildShortURL создает полный короткий URL из baseURL и shortID
+func (s *URLShortenerService) buildShortURL(shortID string) string {
+	// Простое конкатенирование, так как baseURL всегда валидный
+	if strings.HasSuffix(s.baseURL, "/") {
+		return s.baseURL + shortID
+	}
+	return s.baseURL + "/" + shortID
+}
+
 // генерация коротких ссылок - бизнес-логика
 func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error) {
 	originalURL = strings.TrimSpace(originalURL)
@@ -91,6 +100,16 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 			continue // попробуем снова, ошибка генерации
 		}
 		if err := s.repo.Save(id, originalURL); err != nil {
+			// Проверяем, является ли ошибка дубликатом оригинального URL
+			var dupErr *repository.ErrDuplicateOriginalURL
+			if errors.As(err, &dupErr) {
+				// URL уже существует - возвращаем существующий короткий URL
+				s.mu.Lock()
+				s.cache[originalURL] = dupErr.ShortID
+				s.mu.Unlock()
+				return s.buildShortURL(dupErr.ShortID), ErrDuplicate
+			}
+
 			if errors.Is(err, repository.ErrDuplicateID) {
 				continue // ID уже существует, пробуем снова
 			}

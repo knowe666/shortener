@@ -24,6 +24,16 @@ var (
 	ErrDuplicateID = errors.New("short ID already exists")
 )
 
+// ErrDuplicateOriginalURL - ошибка, которая возникает при попытке сохранить уже существующий URL
+// и содержит существующий short_id
+type ErrDuplicateOriginalURL struct {
+	ShortID string
+}
+
+func (e *ErrDuplicateOriginalURL) Error() string {
+	return fmt.Sprintf("original URL already exists (existing short ID: %s)", e.ShortID)
+}
+
 // InMemoryURLRepository реализует URLRepository с хранением в памяти
 type InMemoryURLRepository struct {
 	mu    sync.Mutex
@@ -42,18 +52,23 @@ func NewInMemoryURLRepository() *InMemoryURLRepository {
 // Save сохраняет короткую ссылку
 func (r *InMemoryURLRepository) Save(shortID, originalURL string) error {
 	if shortID == "" {
-		fmt.Println("short ID cannot be empty")
 		return fmt.Errorf("short ID cannot be empty")
 	}
 	if originalURL == "" {
-		fmt.Println("original URL cannot be empty")
 		return fmt.Errorf("original URL cannot be empty")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// Проверяем, существует ли уже такой URL
+	for id, url := range r.urls {
+		if url == originalURL {
+			return &ErrDuplicateOriginalURL{ShortID: id}
+		}
+	}
+
 	if _, ok := r.urls[shortID]; ok {
-		fmt.Printf("short ID %s already exists\n", shortID)
-		return fmt.Errorf("%w, %s", ErrDuplicateID, shortID)
+		return fmt.Errorf("%w: %s", ErrDuplicateID, shortID)
 	}
 	r.urls[shortID] = originalURL
 	return nil

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 
@@ -40,7 +39,6 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Print("body " + string(body))
 	originalURL := strings.TrimSpace(string(body))
 	h.logger.Info("POST request", zap.String("url", originalURL))
 
@@ -56,7 +54,13 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, business.ErrInvalidURL):
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		case errors.Is(err, business.ErrDuplicate):
-			http.Error(w, err.Error(), http.StatusConflict)
+			// Возвращаем 409 Conflict с существующим коротким URL
+			h.logger.Info("Duplicate URL detected, returning existing short URL",
+				zap.String("short_url", shortURL))
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusConflict)
+			w.Write([]byte(shortURL))
+			return
 		case errors.Is(err, business.ErrFailedToGenerateID):
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		case errors.Is(err, business.ErrFailedToSave):
@@ -97,7 +101,18 @@ func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, business.ErrInvalidURL):
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		case errors.Is(err, business.ErrDuplicate):
-			http.Error(w, err.Error(), http.StatusConflict)
+			// Возвращаем 409 Conflict с существующим коротким URL в JSON формате
+			h.logger.Info("Duplicate URL detected, returning existing short URL",
+				zap.String("short_url", shortURL))
+			response := shortenResponse{
+				Result: shortURL,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				h.logger.Error("Failed to encode JSON response", zap.Error(err))
+			}
+			return
 		case errors.Is(err, business.ErrFailedToGenerateID):
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		case errors.Is(err, business.ErrFailedToSave):
@@ -116,7 +131,7 @@ func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		logger.Error("Failed to encode JSON response", zap.Error(err))
+		h.logger.Error("Failed to encode JSON response", zap.Error(err))
 	}
 }
 
