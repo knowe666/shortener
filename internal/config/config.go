@@ -34,8 +34,9 @@ func NewConfig() (*Config, error) {
 		*databaseDSN = databaseDSNEnv
 	}
 
-	// Значение по умолчанию для файла, если не указано
-	if *filePath == "" {
+	// Если DSN указан, используем PostgreSQL, иначе пробуем файл
+	if *databaseDSN == "" && *filePath == "" {
+		// Если ни DSN, ни путь к файлу не указаны, используем значение по умолчанию для файла
 		*filePath = "storage.json"
 	}
 
@@ -64,4 +65,14 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("file storage path cannot be empty")
 	}
 	return nil
+}
+
+// HasDatabase возвращает true, если настроен DSN
+func (c *Config) HasDatabase() bool {
+	return c.DatabaseDSN != ""
+}
+
+// HasFileStorage возвращает true, если настроен путь к файлу
+func (c *Config) HasFileStorage() bool {
+	return c.FileStoragePath != ""
 }

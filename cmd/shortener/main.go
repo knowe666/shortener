@@ -3,9 +3,13 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	config "github.com/knowe666/shortener/internal/config"
 	transport "github.com/knowe666/shortener/internal/handler"
+	"github.com/knowe666/shortener/internal/migrate"
 	repository "github.com/knowe666/shortener/internal/repository"
 	business "github.com/knowe666/shortener/internal/service"
 )
@@ -22,44 +26,70 @@ func main() {
 
 	log.Printf("Server starting on %s", cfg.ServerAddress)
 	log.Printf("Base URL for short links: %s", cfg.BaseURL)
-	log.Printf("File storage path: %s", cfg.FileStoragePath)
-	log.Printf("Database DSN: %s", cfg.DatabaseDSN) // Логируем DSN (скрывая пароль в продакшене)
 
 	// Выбираем тип репозитория
 	var urlRepo repository.URLRepository
+	var cleanup func() error
 
-	// Приоритет: PostgreSQL > File > In-memory
-	if cfg.DatabaseDSN != "" {
-		postgresRepo, err := repository.NewPostgresURLRepository(cfg.DatabaseDSN)
+	// Приоритет: PostgreSQL > File > In-Memory
+	if cfg.HasDatabase() {
+		log.Printf("Using PostgreSQL storage")
+
+		// Выполняем миграции
+		if err := migrate.RunMigrations(cfg.DatabaseDSN); err != nil {
+			log.Fatalf("Failed to run migrations: %v", err)
+		}
+
+		pgRepo, err := repository.NewPostgresURLRepository(cfg.DatabaseDSN)
 		if err != nil {
 			log.Fatalf("Failed to initialize PostgreSQL repository: %v", err)
 		}
-		urlRepo = postgresRepo
-		log.Printf("Using PostgreSQL storage")
-
-		// Закрываем соединение при завершении
-		defer func() {
-			if err := postgresRepo.Close(); err != nil {
-				log.Printf("Failed to close database connection: %v", err)
-			}
-		}()
-	} else if cfg.FileStoragePath != "" {
+		urlRepo = pgRepo
+		cleanup = pgRepo.Close
+		log.Printf("Connected to PostgreSQL")
+	} else if cfg.HasFileStorage() {
+		log.Printf("Using file storage: %s", cfg.FileStoragePath)
 		fileRepo, err := repository.NewFileURLRepository(cfg.FileStoragePath)
 		if err != nil {
 			log.Fatalf("Failed to initialize file repository: %v", err)
 		}
 		urlRepo = fileRepo
-		log.Printf("Using file storage: %s", cfg.FileStoragePath)
 	} else {
-		urlRepo = repository.NewInMemoryURLRepository()
 		log.Printf("Using in-memory storage")
+		urlRepo = repository.NewInMemoryURLRepository()
 	}
 
 	urlService := business.NewURLShortenerService(urlRepo, cfg.BaseURL)
 	urlHandler := transport.NewURLHandler(urlService)
 	router := transport.SetupRouter(urlHandler)
 
-	if err := http.ListenAndServe(cfg.ServerAddress, router); err != nil {
-		log.Printf("Server failed: %v", err)
+	// Создаем HTTP сервер
+	server := &http.Server{
+		Addr:    cfg.ServerAddress,
+		Handler: router,
 	}
+
+	// Graceful shutdown
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		log.Printf("Server is running on %s", cfg.ServerAddress)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	// Ждем сигнал остановки
+	<-stop
+	log.Println("Shutting down server...")
+
+	// Закрываем соединение с БД если есть
+	if cleanup != nil {
+		if err := cleanup(); err != nil {
+			log.Printf("Error closing database connection: %v", err)
+		}
+	}
+
+	log.Println("Server stopped")
 }
