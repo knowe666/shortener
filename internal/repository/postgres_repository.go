@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 )
@@ -78,6 +80,10 @@ func (r *PostgresURLRepository) initSchema() error {
 }
 
 // Save сохраняет короткую ссылку
+// Возвращает:
+// - nil если запись успешно создана
+// - ErrDuplicateID если short_id уже существует
+// - *ErrDuplicateOriginalURL если original_url уже существует (возвращает конфликтующий short_id)
 func (r *PostgresURLRepository) Save(shortID, originalURL string) error {
 	if shortID == "" {
 		return ErrEmptyID
@@ -89,24 +95,37 @@ func (r *PostgresURLRepository) Save(shortID, originalURL string) error {
 	query := `
 		INSERT INTO urls (short_id, original_url)
 		VALUES ($1, $2)
-		ON CONFLICT (short_id) DO NOTHING
-		RETURNING id
 	`
 
-	var id int
-	err := r.db.QueryRowx(query, shortID, originalURL).Scan(&id)
+	_, err := r.db.Exec(query, shortID, originalURL)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			// Проверяем, существует ли уже такая запись
-			var exists bool
-			checkQuery := `SELECT EXISTS(SELECT 1 FROM urls WHERE short_id = $1)`
-			if err := r.db.QueryRowx(checkQuery, shortID).Scan(&exists); err != nil {
-				return fmt.Errorf("failed to check existing record: %w", err)
+		// Проверяем, является ли ошибка нарушением уникальности
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case pgerrcode.UniqueViolation:
+				// Проверяем, какое именно ограничение нарушено
+				// Для этого делаем запрос к БД
+				var existingShortID string
+				checkQuery := `SELECT short_id FROM urls WHERE original_url = $1 LIMIT 1`
+				err := r.db.Get(&existingShortID, checkQuery, originalURL)
+				if err == nil {
+					// URL уже существует - возвращаем специальную ошибку с существующим short_id
+					return &ErrDuplicateOriginalURL{ShortID: existingShortID}
+				}
+
+				// Если не нашли по original_url, проверяем по short_id
+				var exists bool
+				checkQueryShort := `SELECT EXISTS(SELECT 1 FROM urls WHERE short_id = $1)`
+				if err := r.db.QueryRowx(checkQueryShort, shortID).Scan(&exists); err == nil && exists {
+					return ErrDuplicateID
+				}
+
+				// Если ничего не нашли, но ошибка была - возвращаем общую ошибку
+				return fmt.Errorf("failed to insert record: %w", err)
+			default:
+				return fmt.Errorf("failed to save URL: %w", err)
 			}
-			if exists {
-				return ErrDuplicateID
-			}
-			return fmt.Errorf("failed to insert record: %w", err)
 		}
 		return fmt.Errorf("failed to save URL: %w", err)
 	}
@@ -156,6 +175,14 @@ func (r *PostgresURLRepository) Close() error {
 		return r.db.Close()
 	}
 	return nil
+}
+
+// Ping проверяет соединение с базой данных
+func (r *PostgresURLRepository) Ping() error {
+	if r.db == nil {
+		return errors.New("database connection is nil")
+	}
+	return r.db.Ping()
 }
 
 // GetAll возвращает все записи (для тестирования)
