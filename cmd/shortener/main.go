@@ -23,10 +23,27 @@ func main() {
 	log.Printf("Server starting on %s", cfg.ServerAddress)
 	log.Printf("Base URL for short links: %s", cfg.BaseURL)
 	log.Printf("File storage path: %s", cfg.FileStoragePath)
+	log.Printf("Database DSN: %s", cfg.DatabaseDSN) // Логируем DSN (скрывая пароль в продакшене)
 
 	// Выбираем тип репозитория
 	var urlRepo repository.URLRepository
-	if cfg.FileStoragePath != "" {
+
+	// Приоритет: PostgreSQL > File > In-memory
+	if cfg.DatabaseDSN != "" {
+		postgresRepo, err := repository.NewPostgresURLRepository(cfg.DatabaseDSN)
+		if err != nil {
+			log.Fatalf("Failed to initialize PostgreSQL repository: %v", err)
+		}
+		urlRepo = postgresRepo
+		log.Printf("Using PostgreSQL storage")
+
+		// Закрываем соединение при завершении
+		defer func() {
+			if err := postgresRepo.Close(); err != nil {
+				log.Printf("Failed to close database connection: %v", err)
+			}
+		}()
+	} else if cfg.FileStoragePath != "" {
 		fileRepo, err := repository.NewFileURLRepository(cfg.FileStoragePath)
 		if err != nil {
 			log.Fatalf("Failed to initialize file repository: %v", err)

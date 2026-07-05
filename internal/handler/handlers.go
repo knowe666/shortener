@@ -142,3 +142,24 @@ func (h *URLHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Location", originalURL)
 	w.WriteHeader(http.StatusTemporaryRedirect)
 }
+
+// HandlePing проверяет соединение с базой данных
+func (h *URLHandler) HandlePing(w http.ResponseWriter, r *http.Request) {
+	// Проверяем, поддерживает ли репозиторий Ping
+	pingable, ok := h.service.(interface{ Ping() error })
+	if !ok {
+		// Если репозиторий не поддерживает Ping, считаем что всё работает
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+		return
+	}
+
+	if err := pingable.Ping(); err != nil {
+		h.logger.Error("Database ping failed", zap.Error(err))
+		http.Error(w, "Database connection failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}

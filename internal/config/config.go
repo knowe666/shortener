@@ -11,6 +11,7 @@ type Config struct {
 	ServerAddress   string
 	BaseURL         string
 	FileStoragePath string
+	DatabaseDSN     string // Добавляем DSN для БД
 }
 
 // NewConfig инициализирует конфигурацию из флагов командной строки
@@ -18,6 +19,7 @@ func NewConfig() (*Config, error) {
 	serverAddress := flag.String("a", "localhost:8080", "адрес запуска HTTP-сервера")
 	baseURL := flag.String("b", "http://localhost:8080", "базовый адрес результирующего сокращённого URL")
 	filePath := flag.String("f", "", "путь к файлу для хранения URL (JSON)")
+	databaseDSN := flag.String("d", "", "DSN для подключения к PostgreSQL")
 	flag.Parse()
 	if serverAddressEnv := os.Getenv("SERVER_ADDRESS"); serverAddressEnv != "" {
 		*serverAddress = serverAddressEnv
@@ -27,6 +29,9 @@ func NewConfig() (*Config, error) {
 	}
 	if filePathEnv := os.Getenv("FILE_STORAGE_PATH"); filePathEnv != "" {
 		*filePath = filePathEnv
+	}
+	if databaseDSNEnv := os.Getenv("DATABASE_DSN"); databaseDSNEnv != "" {
+		*databaseDSN = databaseDSNEnv
 	}
 
 	// Значение по умолчанию для файла, если не указано
@@ -38,6 +43,7 @@ func NewConfig() (*Config, error) {
 		ServerAddress:   *serverAddress,
 		BaseURL:         *baseURL,
 		FileStoragePath: *filePath,
+		DatabaseDSN:     *databaseDSN,
 	}
 
 	if err := cfg.Validate(); err != nil {
