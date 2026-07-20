@@ -16,8 +16,9 @@ const maxGenerateAttempts = 10
 
 // URLRepository - интерфейс репозитория
 type URLRepository interface {
-	Save(shortID, originalURL string) error
+	Save(shortID, originalURL, userID string) error
 	Get(shortID string) (string, error)
+	GetUserURLs(userID string) ([]repository.URLData, error)
 }
 
 // ExtendedURLRepository - расширенный интерфейс для проверки дубликатов
@@ -48,23 +49,32 @@ func (s *URLShortenerService) GetOriginalURL(shortID string) (string, error) {
 }
 
 var (
-	ErrInvalidURL         = errors.New("invalid URL: must start with http:// or https://")
-	ErrFailedToGenerateID = errors.New("failed to generate unique short ID (possible ID space exhaustion)")
-	ErrDuplicate          = errors.New("url already exists")
-	ErrFailedToSave       = errors.New("failed to save URL")
-	ErrNotFound           = errors.New("short URL not found")
+	InvalidURLError         = errors.New("invalid URL: must start with http:// or https://")
+	FailedToGenerateIDError = errors.New("failed to generate unique short ID (possible ID space exhaustion)")
+	DuplicateError          = errors.New("url already exists")
+	FailedToSaveError       = errors.New("failed to save URL")
+	NotFoundError           = errors.New("short URL not found")
 )
 
+// buildShortURL создает полный короткий URL из baseURL и shortID
+func (s *URLShortenerService) buildShortURL(shortID string) string {
+	// Простое конкатенирование, так как baseURL всегда валидный
+	if strings.HasSuffix(s.baseURL, "/") {
+		return s.baseURL + shortID
+	}
+	return s.baseURL + "/" + shortID
+}
+
 // генерация коротких ссылок - бизнес-логика
-func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error) {
+func (s *URLShortenerService) CreateShortURL(originalURL, userID string) (string, error) {
 	originalURL = strings.TrimSpace(originalURL)
 	// Валидация URL
 	if originalURL == "" {
-		return "", ErrInvalidURL
+		return "", InvalidURLError
 	}
 	// Проверяем, что это HTTP или HTTPS URL
 	if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
-		return "", ErrInvalidURL
+		return "", InvalidURLError
 	}
 	s.mu.Lock() // для предотвращения race condition
 	oldShortID, exists := s.cache[originalURL]
@@ -90,18 +100,28 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 		if err != nil {
 			continue // попробуем снова, ошибка генерации
 		}
-		if err := s.repo.Save(id, originalURL); err != nil {
-			if errors.Is(err, repository.ErrDuplicateID) {
+		if err := s.repo.Save(id, originalURL, userID); err != nil {
+			// Проверяем, является ли ошибка дубликатом оригинального URL
+			var dupErr *repository.ErrDuplicateOriginalURL
+			if errors.As(err, &dupErr) {
+				// URL уже существует - возвращаем существующий короткий URL
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				s.cache[originalURL] = dupErr.ShortID
+				return s.buildShortURL(dupErr.ShortID), DuplicateError
+			}
+
+			if errors.Is(err, repository.DuplicateIDError) {
 				continue // ID уже существует, пробуем снова
 			}
-			return "", fmt.Errorf("%w: %v", ErrFailedToSave, err)
+			return "", fmt.Errorf("%w: %v", FailedToSaveError, err)
 		}
 		s.mu.Lock()
 		s.cache[originalURL] = id // Сохраняем в кэш
 		s.mu.Unlock()
 		return url.JoinPath(s.baseURL, id)
 	}
-	return "", ErrFailedToGenerateID
+	return "", FailedToGenerateIDError
 }
 
 // generateShortID создаёт случайный идентификатор
@@ -111,4 +131,23 @@ func generateShortID() (string, error) {
 		return "", err
 	}
 	return base64.URLEncoding.EncodeToString(bytes)[:8], nil
+}
+
+func (s *URLShortenerService) GetUserURLs(userID string) ([]repository.URLData, error) {
+	if userID == "" {
+		return nil, errors.New("user ID cannot be empty")
+	}
+	
+	urls, err := s.repo.GetUserURLs(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user URLs: %w", err)
+	}
+	
+	for i := range urls {
+		if fullURL, err := url.JoinPath(s.baseURL, urls[i].ShortURL); err == nil {
+			urls[i].ShortURL = fullURL
+		}
+	}
+	
+	return urls, nil
 }

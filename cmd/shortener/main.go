@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/knowe666/shortener/internal/auth"
 	config "github.com/knowe666/shortener/internal/config"
 	transport "github.com/knowe666/shortener/internal/handler"
 	"github.com/knowe666/shortener/internal/migrate"
@@ -23,7 +24,7 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to load config: ", err)
 	}
-
+	auth.InitAuth("your-secret-key")
 	log.Printf("Server starting on %s", cfg.ServerAddress)
 	log.Printf("Base URL for short links: %s", cfg.BaseURL)
 
