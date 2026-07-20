@@ -35,6 +35,7 @@ type shortenResponse struct {
 func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		h.logger.Error("Failed to read request body", zap.Error(err))
 		http.Error(w, "Failed to read body", http.StatusBadRequest)
 		return
 	}
@@ -51,19 +52,21 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("Failed to create short URL", zap.Error(err))
 		switch {
-		case errors.Is(err, business.ErrInvalidURL):
+		case errors.Is(err, business.InvalidURLError):
 			http.Error(w, err.Error(), http.StatusBadRequest)
-		case errors.Is(err, business.ErrDuplicate):
+		case errors.Is(err, business.DuplicateError):
 			// Возвращаем 409 Conflict с существующим коротким URL
 			h.logger.Info("Duplicate URL detected, returning existing short URL",
 				zap.String("short_url", shortURL))
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusConflict)
-			w.Write([]byte(shortURL))
+			if _, err := w.Write([]byte(shortURL)); err != nil {
+				h.logger.Error("Failed to write response", zap.Error(err))
+			}
 			return
-		case errors.Is(err, business.ErrFailedToGenerateID):
+		case errors.Is(err, business.FailedToGenerateIDError):
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		case errors.Is(err, business.ErrFailedToSave):
+		case errors.Is(err, business.FailedToSaveError):
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		default:
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -74,7 +77,9 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info("Short URL created", zap.String("short_url", shortURL))
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte(shortURL))
+	if _, err := w.Write([]byte(shortURL)); err != nil {
+		h.logger.Error("Failed to write response", zap.Error(err))
+	}
 }
 
 func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +91,7 @@ func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
 	var req shortenRequest
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&req); err != nil {
+		h.logger.Error("Failed to decode JSON request", zap.Error(err))
 		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
@@ -98,9 +104,9 @@ func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
 	shortURL, err := h.service.CreateShortURL(req.URL)
 	if err != nil {
 		switch {
-		case errors.Is(err, business.ErrInvalidURL):
+		case errors.Is(err, business.InvalidURLError):
 			http.Error(w, err.Error(), http.StatusBadRequest)
-		case errors.Is(err, business.ErrDuplicate):
+		case errors.Is(err, business.DuplicateError):
 			// Возвращаем 409 Conflict с существующим коротким URL в JSON формате
 			h.logger.Info("Duplicate URL detected, returning existing short URL",
 				zap.String("short_url", shortURL))
@@ -113,9 +119,9 @@ func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
 				h.logger.Error("Failed to encode JSON response", zap.Error(err))
 			}
 			return
-		case errors.Is(err, business.ErrFailedToGenerateID):
+		case errors.Is(err, business.FailedToGenerateIDError):
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		case errors.Is(err, business.ErrFailedToSave):
+		case errors.Is(err, business.FailedToSaveError):
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		default:
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -126,10 +132,8 @@ func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
 	response := shortenResponse{
 		Result: shortURL,
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		h.logger.Error("Failed to encode JSON response", zap.Error(err))
 	}
@@ -164,8 +168,11 @@ func (h *URLHandler) HandlePing(w http.ResponseWriter, r *http.Request) {
 	pingable, ok := h.service.(interface{ Ping() error })
 	if !ok {
 		// Если репозиторий не поддерживает Ping, считаем что всё работает
+		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		if _, err := w.Write([]byte("OK")); err != nil {
+			h.logger.Error("Failed to write response", zap.Error(err))
+		}
 		return
 	}
 
@@ -175,6 +182,9 @@ func (h *URLHandler) HandlePing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	if _, err := w.Write([]byte("OK")); err != nil {
+		h.logger.Error("Failed to write response", zap.Error(err))
+	}
 }

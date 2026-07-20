@@ -40,13 +40,13 @@ func (r *FileURLRepository) Save(shortID, originalURL string) error {
 	defer r.mu.Unlock()
 
 	if shortID == "" {
-		return ErrEmptyID
+		return EmptyIDError
 	}
 	if originalURL == "" {
 		return errors.New("original URL cannot be empty")
 	}
 	if _, exists := r.urls[shortID]; exists {
-		return ErrDuplicateID
+		return DuplicateIDError
 	}
 
 	r.urls[shortID] = originalURL
@@ -58,12 +58,12 @@ func (r *FileURLRepository) Get(shortID string) (string, error) {
 	defer r.mu.Unlock()
 
 	if shortID == "" {
-		return "", ErrEmptyID
+		return "", EmptyIDError
 	}
 
 	originalURL, exists := r.urls[shortID]
 	if !exists {
-		return "", ErrNotFoundID
+		return "", NotFoundIDError
 	}
 	return originalURL, nil
 }

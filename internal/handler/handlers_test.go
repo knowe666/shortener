@@ -60,22 +60,22 @@ func TestURLHandler_HandlePost(t *testing.T) {
 			requestBody: "https://duplicate.com",
 			setupMock: func(m *MockURLService) {
 				m.createShortURLFunc = func(originalURL string) (string, error) {
-					return "", business.ErrDuplicate
+					return "", business.DuplicateError
 				}
 			},
 			expectedStatus: http.StatusConflict,
-			expectedBody:   business.ErrDuplicate.Error() + "\n",
+			expectedBody:   business.DuplicateError.Error() + "\n",
 		},
 		{
 			name:        "Invalid URL",
 			requestBody: "invalid-url",
 			setupMock: func(m *MockURLService) {
 				m.createShortURLFunc = func(originalURL string) (string, error) {
-					return "", business.ErrInvalidURL
+					return "", business.InvalidURLError
 				}
 			},
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   business.ErrInvalidURL.Error() + "\n",
+			expectedBody:   business.InvalidURLError.Error() + "\n",
 		},
 	}
 
@@ -130,7 +130,7 @@ func TestURLHandler_HandleGet(t *testing.T) {
 			shortID: "notexist",
 			setupMock: func(m *MockURLService) {
 				m.getOriginalURLFunc = func(shortID string) (string, error) {
-					return "", business.ErrNotFound
+					return "", business.NotFoundError
 				}
 			},
 			expectedStatus:   http.StatusNotFound,

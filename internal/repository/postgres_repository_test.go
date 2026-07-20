@@ -50,7 +50,7 @@ func TestPostgresURLRepository(t *testing.T) {
 	if err == nil {
 		t.Error("Save duplicate original URL should return error")
 	}
-	
+
 	var dupErr *ErrDuplicateOriginalURL
 	if errors.As(err, &dupErr) {
 		if dupErr.ShortID != testShortID {
@@ -62,8 +62,8 @@ func TestPostgresURLRepository(t *testing.T) {
 
 	// Тест дубликата short_id
 	err = repo.Save(testShortID, "https://another.com")
-	if err != ErrDuplicateID {
-		t.Errorf("Save duplicate short_id = %v, want %v", err, ErrDuplicateID)
+	if err != DuplicateIDError {
+		t.Errorf("Save duplicate short_id = %v, want %v", err, DuplicateIDError)
 	}
 
 	// Тест GetByOriginalURL

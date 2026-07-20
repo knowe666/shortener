@@ -79,63 +79,54 @@ func (r *PostgresURLRepository) initSchema() error {
 	return nil
 }
 
-// Save сохраняет короткую ссылку
+// Save сохраняет короткую ссылку используя INSERT ... ON CONFLICT
 // Возвращает:
 // - nil если запись успешно создана
-// - ErrDuplicateID если short_id уже существует
-// - *ErrDuplicateOriginalURL если original_url уже существует (возвращает конфликтующий short_id)
+// - DuplicateIDError если short_id уже существует
+// - *DuplicateOriginalURLError если original_url уже существует (возвращает конфликтующий short_id)
 func (r *PostgresURLRepository) Save(shortID, originalURL string) error {
 	if shortID == "" {
-		return ErrEmptyID
+		return EmptyIDError
 	}
 	if originalURL == "" {
 		return errors.New("original URL cannot be empty")
 	}
-
+	// Используем INSERT ... ON CONFLICT для атомарной проверки
+	// Если конфликт по original_url - возвращаем существующий short_id
+	// Если конфликт по short_id - возвращаем ошибку
 	query := `
 		INSERT INTO urls (short_id, original_url)
 		VALUES ($1, $2)
+		ON CONFLICT (original_url) DO NOTHING
+		RETURNING short_id
 	`
-
-	_, err := r.db.Exec(query, shortID, originalURL)
+	var existingShortID string
+	err := r.db.QueryRowx(query, shortID, originalURL).Scan(&existingShortID)
 	if err != nil {
-		// Проверяем, является ли ошибка нарушением уникальности
+		// Проверяем, является ли ошибка нарушением уникальности по short_id
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
-			switch pgErr.Code {
-			case pgerrcode.UniqueViolation:
-				// Проверяем, какое именно ограничение нарушено
-				// Для этого делаем запрос к БД
-				var existingShortID string
-				checkQuery := `SELECT short_id FROM urls WHERE original_url = $1 LIMIT 1`
-				err := r.db.Get(&existingShortID, checkQuery, originalURL)
-				if err == nil {
-					// URL уже существует - возвращаем специальную ошибку с существующим short_id
-					return &ErrDuplicateOriginalURL{ShortID: existingShortID}
-				}
-
-				// Если не нашли по original_url, проверяем по short_id
-				var exists bool
-				checkQueryShort := `SELECT EXISTS(SELECT 1 FROM urls WHERE short_id = $1)`
-				if err := r.db.QueryRowx(checkQueryShort, shortID).Scan(&exists); err == nil && exists {
-					return ErrDuplicateID
-				}
-
-				// Если ничего не нашли, но ошибка была - возвращаем общую ошибку
-				return fmt.Errorf("failed to insert record: %w", err)
-			default:
-				return fmt.Errorf("failed to save URL: %w", err)
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
+			// Проверяем, что это конфликт по short_id
+			var exists bool
+			checkQuery := `SELECT EXISTS(SELECT 1 FROM urls WHERE short_id = $1)`
+			if err := r.db.QueryRowx(checkQuery, shortID).Scan(&exists); err == nil && exists {
+				return DuplicateIDError
 			}
 		}
 		return fmt.Errorf("failed to save URL: %w", err)
 	}
+	// Если вернулся другой short_id, значит URL уже существовал
+	if existingShortID != shortID {
+		return &ErrDuplicateOriginalURL{ShortID: existingShortID}
+	}
+
 	return nil
 }
 
 // Get возвращает оригинальный URL по короткому ID
 func (r *PostgresURLRepository) Get(shortID string) (string, error) {
 	if shortID == "" {
-		return "", ErrEmptyID
+		return "", EmptyIDError
 	}
 
 	query := `SELECT original_url FROM urls WHERE short_id = $1`
@@ -143,7 +134,7 @@ func (r *PostgresURLRepository) Get(shortID string) (string, error) {
 	err := r.db.Get(&originalURL, query, shortID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", ErrNotFoundID
+			return "", NotFoundIDError
 		}
 		return "", fmt.Errorf("failed to get URL: %w", err)
 	}
@@ -161,7 +152,7 @@ func (r *PostgresURLRepository) GetByOriginalURL(originalURL string) (string, er
 	err := r.db.Get(&shortID, query, originalURL)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", ErrNotFoundID
+			return "", NotFoundIDError
 		}
 		return "", fmt.Errorf("failed to get URL by original: %w", err)
 	}
