@@ -17,14 +17,16 @@ type FileURLRepository struct {
 	mu       sync.Mutex
 	filePath string
 	urls     map[string]string // shortID -> originalURL
-	uuidMap  map[string]string // shortID -> uuid
+	cache    map[string]string // originalURL -> shortID
+	userURLs map[string][]string
 }
 
 func NewFileURLRepository(filePath string) (*FileURLRepository, error) {
 	repo := &FileURLRepository{
 		filePath: filePath,
 		urls:     make(map[string]string),
-		uuidMap:  make(map[string]string),
+		cache:    make(map[string]string),
+		userURLs: make(map[string][]string),
 	}
 
 	// Загружаем существующие данные из файла
@@ -35,7 +37,33 @@ func NewFileURLRepository(filePath string) (*FileURLRepository, error) {
 	return repo, nil
 }
 
-func (r *FileURLRepository) Save(shortID, originalURL string) error {
+func (r *FileURLRepository) GetUserURLs(userID string) ([]URLData, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if userID == "" {
+		return nil, errors.New("user ID cannot be empty")
+	}
+
+	shortIDs, exists := r.userURLs[userID]
+	if !exists || len(shortIDs) == 0 {
+		return []URLData{}, nil
+	}
+
+	result := make([]URLData, 0, len(shortIDs))
+	for _, shortID := range shortIDs {
+		originalURL, ok := r.urls[shortID]
+		if ok {
+			result = append(result, URLData{
+				ShortURL:    shortID,
+				OriginalURL: originalURL,
+			})
+		}
+	}
+	return result, nil
+}
+
+func (r *FileURLRepository) Save(shortID, originalURL, userID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -50,6 +78,8 @@ func (r *FileURLRepository) Save(shortID, originalURL string) error {
 	}
 
 	r.urls[shortID] = originalURL
+	r.cache[originalURL] = shortID
+	r.userURLs[userID] = append(r.userURLs[userID], shortID)
 	return r.saveToFile()
 }
 
@@ -101,7 +131,7 @@ func (r *FileURLRepository) loadFromFile() error {
 
 	for _, record := range records {
 		r.urls[record.ShortURL] = record.OriginalURL
-		r.uuidMap[record.ShortURL] = record.UUID
+		r.cache[record.ShortURL] = record.UUID
 	}
 	return nil
 }

@@ -30,7 +30,7 @@ func TestPostgresURLRepository(t *testing.T) {
 	testShortID := "test123"
 	testURL := "https://test.com"
 
-	err = repo.Save(testShortID, testURL)
+	err = repo.Save(testShortID, testURL, "user1")
 	if err != nil {
 		t.Errorf("Save() error = %v", err)
 	}
@@ -46,7 +46,7 @@ func TestPostgresURLRepository(t *testing.T) {
 
 	// Тест дубликата URL
 	anotherShortID := "test456"
-	err = repo.Save(anotherShortID, testURL)
+	err = repo.Save(anotherShortID, testURL, "user1")
 	if err == nil {
 		t.Error("Save duplicate original URL should return error")
 	}
@@ -61,7 +61,7 @@ func TestPostgresURLRepository(t *testing.T) {
 	}
 
 	// Тест дубликата short_id
-	err = repo.Save(testShortID, "https://another.com")
+	err = repo.Save(testShortID, "https://another.com", "user1")
 	if err != DuplicateIDError {
 		t.Errorf("Save duplicate short_id = %v, want %v", err, DuplicateIDError)
 	}
@@ -99,13 +99,13 @@ func TestPostgresURLRepository_UniqueConstraint(t *testing.T) {
 	shortID2 := "unique2"
 
 	// Первая вставка должна пройти успешно
-	err = repo.Save(shortID1, testURL)
+	err = repo.Save(shortID1, testURL, "user1")
 	if err != nil {
 		t.Fatalf("First save failed: %v", err)
 	}
 
 	// Вторая вставка с тем же URL должна вернуть ErrDuplicateOriginalURL
-	err = repo.Save(shortID2, testURL)
+	err = repo.Save(shortID2, testURL, "user1")
 	if err == nil {
 		t.Fatal("Second save should fail with duplicate error")
 	}

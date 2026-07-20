@@ -22,6 +22,7 @@ type URLRecordDB struct {
 	ID          int       `db:"id"`
 	ShortID     string    `db:"short_id"`
 	OriginalURL string    `db:"original_url"`
+	UserID      string    `db:"user_id"`
 	CreatedAt   time.Time `db:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at"`
 }
@@ -79,12 +80,27 @@ func (r *PostgresURLRepository) initSchema() error {
 	return nil
 }
 
+func (r *PostgresURLRepository) GetUserURLs(userID string) ([]URLData, error) {
+	if userID == "" {
+		return nil, errors.New("user ID cannot be empty")
+	}
+
+	query := `SELECT short_id, original_url FROM urls WHERE user_id = $1 ORDER BY created_at DESC`
+	var urls []URLData
+	err := r.db.Select(&urls, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user URLs: %w", err)
+	}
+
+	return urls, nil
+}
+
 // Save сохраняет короткую ссылку используя INSERT ... ON CONFLICT
 // Возвращает:
 // - nil если запись успешно создана
 // - DuplicateIDError если short_id уже существует
 // - *DuplicateOriginalURLError если original_url уже существует (возвращает конфликтующий short_id)
-func (r *PostgresURLRepository) Save(shortID, originalURL string) error {
+func (r *PostgresURLRepository) Save(shortID, originalURL, userID string) error {
 	if shortID == "" {
 		return EmptyIDError
 	}

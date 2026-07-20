@@ -9,13 +9,20 @@ import (
 
 // URLRepository определяет минимальный интерфейс для работы с хранилищем
 type URLRepository interface {
-	Save(shortID, originalURL string) error
+	Save(shortID, originalURL, userID string) error
 	Get(shortID string) (string, error)
+	GetUserURLs(userID string) ([]URLData, error) // НОВЫЙ МЕТОД
 }
 
 // Pingable интерфейс для репозиториев, поддерживающих проверку соединения
 type Pingable interface {
 	Ping() error
+}
+
+// URLData представляет данные URL для ответа API
+type URLData struct {
+	ShortURL    string `json:"short_url"`
+	OriginalURL string `json:"original_url"`
 }
 
 var (
@@ -36,21 +43,49 @@ func (e *ErrDuplicateOriginalURL) Error() string {
 
 // InMemoryURLRepository реализует URLRepository с хранением в памяти
 type InMemoryURLRepository struct {
-	mu    sync.Mutex
-	urls  map[string]string // shortID -> originalURL
-	cache map[string]string // originalURL -> shortID (обратный мап)
+	mu       sync.Mutex
+	urls     map[string]string // shortID -> originalURL
+	cache    map[string]string // originalURL -> shortID (обратный мап)
+	userURLs map[string][]string
 }
 
 // NewInMemoryURLRepository создаёт новый экземпляр репозитория
 func NewInMemoryURLRepository() *InMemoryURLRepository {
 	return &InMemoryURLRepository{
-		urls:  make(map[string]string),
-		cache: make(map[string]string),
+		urls:     make(map[string]string),
+		cache:    make(map[string]string),
+		userURLs: make(map[string][]string),
 	}
 }
 
+func (r *InMemoryURLRepository) GetUserURLs(userID string) ([]URLData, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("user ID cannot be empty")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	shortIDs, exists := r.userURLs[userID]
+	if !exists || len(shortIDs) == 0 {
+		return []URLData{}, nil
+	}
+
+	result := make([]URLData, 0, len(shortIDs))
+	for _, shortID := range shortIDs {
+		originalURL, ok := r.urls[shortID]
+		if ok {
+			result = append(result, URLData{
+				ShortURL:    shortID,
+				OriginalURL: originalURL,
+			})
+		}
+	}
+	return result, nil
+}
+
 // Save сохраняет короткую ссылку
-func (r *InMemoryURLRepository) Save(shortID, originalURL string) error {
+func (r *InMemoryURLRepository) Save(shortID, originalURL, userID string) error {
 	if shortID == "" {
 		return fmt.Errorf("short ID cannot be empty")
 	}
@@ -70,6 +105,7 @@ func (r *InMemoryURLRepository) Save(shortID, originalURL string) error {
 	// Сохраняем в оба мапа
 	r.urls[shortID] = originalURL
 	r.cache[originalURL] = shortID
+	r.userURLs[userID] = append(r.userURLs[userID], shortID)
 	return nil
 }
 

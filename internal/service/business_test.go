@@ -13,13 +13,13 @@ func TestURLShortenerService_CreateShortURL_Duplicate(t *testing.T) {
 	originalURL := "https://example.com"
 
 	// Первое создание
-	first, err := service.CreateShortURL(originalURL)
+	first, err := service.CreateShortURL(originalURL, "user1")
 	if err != nil {
 		t.Fatalf("First creation failed: %v", err)
 	}
 
 	// Второе создание с тем же URL
-	second, err := service.CreateShortURL(originalURL)
+	second, err := service.CreateShortURL(originalURL, "user1")
 	if err != nil {
 		t.Fatalf("Second creation failed: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestURLShortenerService_CreateShortURL(t *testing.T) {
 			}
 
 			service := NewURLShortenerService(mockRepo, tt.baseURL)
-			got, err := service.CreateShortURL(tt.originalURL)
+			got, err := service.CreateShortURL(tt.originalURL, "user1")
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CreateShortURL() error = %v, wantErr %v", err, tt.wantErr)

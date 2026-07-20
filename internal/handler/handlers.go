@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/knowe666/shortener/internal/auth"
+
 	business "github.com/knowe666/shortener/internal/service"
 	"go.uber.org/zap"
 )
@@ -33,6 +35,7 @@ type shortenResponse struct {
 }
 
 func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
+	userID := auth.GetOrCreateUserID(w, r)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		h.logger.Error("Failed to read request body", zap.Error(err))
@@ -48,7 +51,7 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL, err := h.service.CreateShortURL(originalURL)
+	shortURL, err := h.service.CreateShortURL(originalURL, userID)
 	if err != nil {
 		h.logger.Error("Failed to create short URL", zap.Error(err))
 		switch {
@@ -83,6 +86,7 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
+	userID := auth.GetOrCreateUserID(w, r)
 	if r.Header.Get("Content-Type") != "application/json" {
 		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
 		return
@@ -101,7 +105,7 @@ func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL, err := h.service.CreateShortURL(req.URL)
+	shortURL, err := h.service.CreateShortURL(req.URL, userID)
 	if err != nil {
 		switch {
 		case errors.Is(err, business.InvalidURLError):

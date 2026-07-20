@@ -16,8 +16,9 @@ const maxGenerateAttempts = 10
 
 // URLRepository - интерфейс репозитория
 type URLRepository interface {
-	Save(shortID, originalURL string) error
+	Save(shortID, originalURL, userID string) error
 	Get(shortID string) (string, error)
+	GetUserURLs(userID string) ([]repository.URLData, error)
 }
 
 // ExtendedURLRepository - расширенный интерфейс для проверки дубликатов
@@ -65,7 +66,7 @@ func (s *URLShortenerService) buildShortURL(shortID string) string {
 }
 
 // генерация коротких ссылок - бизнес-логика
-func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error) {
+func (s *URLShortenerService) CreateShortURL(originalURL, userID string) (string, error) {
 	originalURL = strings.TrimSpace(originalURL)
 	// Валидация URL
 	if originalURL == "" {
@@ -99,7 +100,7 @@ func (s *URLShortenerService) CreateShortURL(originalURL string) (string, error)
 		if err != nil {
 			continue // попробуем снова, ошибка генерации
 		}
-		if err := s.repo.Save(id, originalURL); err != nil {
+		if err := s.repo.Save(id, originalURL, userID); err != nil {
 			// Проверяем, является ли ошибка дубликатом оригинального URL
 			var dupErr *repository.ErrDuplicateOriginalURL
 			if errors.As(err, &dupErr) {
@@ -130,4 +131,23 @@ func generateShortID() (string, error) {
 		return "", err
 	}
 	return base64.URLEncoding.EncodeToString(bytes)[:8], nil
+}
+
+func (s *URLShortenerService) GetUserURLs(userID string) ([]repository.URLData, error) {
+	if userID == "" {
+		return nil, errors.New("user ID cannot be empty")
+	}
+	
+	urls, err := s.repo.GetUserURLs(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user URLs: %w", err)
+	}
+	
+	for i := range urls {
+		if fullURL, err := url.JoinPath(s.baseURL, urls[i].ShortURL); err == nil {
+			urls[i].ShortURL = fullURL
+		}
+	}
+	
+	return urls, nil
 }

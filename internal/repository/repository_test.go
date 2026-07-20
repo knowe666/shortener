@@ -29,7 +29,7 @@ func TestInMemoryURLRepository_Save(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := repo.Save(tt.shortID, tt.originalURL)
+			err := repo.Save(tt.shortID, tt.originalURL, "user1")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Save() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -57,7 +57,7 @@ func TestInMemoryURLRepository_Concurrent(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		go func(id int) {
 			shortID := string(rune(id))
-			repo.Save(shortID, "https://example.com")
+			repo.Save(shortID, "https://example.com", "user1")
 			done <- true
 		}(i)
 	}
