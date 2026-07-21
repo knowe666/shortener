@@ -30,10 +30,19 @@ func (h *URLHandler) HandleUserURLs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Преобразуем repository.URLData в UserURLData для JSON ответа
+	response := make([]UserURLData, len(urls))
+	for i := range urls {
+		response[i] = UserURLData{
+			ShortURL:    urls[i].ShortURL,
+			OriginalURL: urls[i].OriginalURL,
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
-	if err := json.NewEncoder(w).Encode(urls); err != nil {
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		h.logger.Error("Failed to encode JSON response", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}

@@ -2,6 +2,7 @@ package transport
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,14 @@ import (
 type MockURLService struct {
 	createShortURLFunc func(originalURL, userID string) (string, error)
 	getOriginalURLFunc func(shortID string) (string, error)
+	deleteUserURLsFunc func(userID string, shortIDs []string) error
+}
+
+func (m *MockURLService) DeleteUserURLs(userID string, shortIDs []string) error {
+	if m.deleteUserURLsFunc != nil {
+		return m.deleteUserURLsFunc(userID, shortIDs)
+	}
+	return nil
 }
 
 func (m *MockURLService) CreateShortURL(originalURL, userID string) (string, error) {
@@ -31,8 +40,17 @@ func (m *MockURLService) GetOriginalURL(shortID string) (string, error) {
 	return "https://example.com", nil
 }
 
-func (m *MockURLService) GetUserURLs(userID string) ([]repository.URLData, error) {
-	return nil, nil
+func (m *MockURLService) GetUserURLs(userID string) ([]business.UserURLData, error) {
+	if userID == "" {
+		return nil, errors.New("user ID cannot be empty")
+	}
+
+	return []business.UserURLData{
+		{
+			ShortURL:    "http://localhost:8080/abc123",
+			OriginalURL: "https://example.com",
+		},
+	}, nil
 }
 
 func TestURLHandler_HandlePost(t *testing.T) {

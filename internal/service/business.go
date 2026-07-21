@@ -19,6 +19,7 @@ type URLRepository interface {
 	Save(shortID, originalURL, userID string) error
 	Get(shortID string) (string, error)
 	GetUserURLs(userID string) ([]repository.URLData, error)
+	DeleteUserURLs(userID string, shortIDs []string) error
 }
 
 // ExtendedURLRepository - расширенный интерфейс для проверки дубликатов
@@ -45,7 +46,25 @@ func NewURLShortenerService(repo URLRepository, baseURL string) *URLShortenerSer
 }
 
 func (s *URLShortenerService) GetOriginalURL(shortID string) (string, error) {
-	return s.repo.Get(shortID)
+	originalURL, err := s.repo.Get(shortID)
+	if err != nil {
+		// Проверяем, не является ли ошибка удалением
+		if errors.Is(err, repository.DeletedError) {
+			return "", DeletedError
+		}
+		return "", err
+	}
+	return originalURL, nil
+}
+
+func (s *URLShortenerService) DeleteUserURLs(userID string, shortIDs []string) error {
+	if userID == "" {
+		return errors.New("user ID cannot be empty")
+	}
+	if len(shortIDs) == 0 {
+		return nil
+	}
+	return s.repo.DeleteUserURLs(userID, shortIDs)
 }
 
 var (
@@ -54,6 +73,7 @@ var (
 	DuplicateError          = errors.New("url already exists")
 	FailedToSaveError       = errors.New("failed to save URL")
 	NotFoundError           = errors.New("short URL not found")
+	DeletedError            = errors.New("URL has been deleted")
 )
 
 // buildShortURL создает полный короткий URL из baseURL и shortID
@@ -137,17 +157,23 @@ func (s *URLShortenerService) GetUserURLs(userID string) ([]repository.URLData, 
 	if userID == "" {
 		return nil, errors.New("user ID cannot be empty")
 	}
-	
+
 	urls, err := s.repo.GetUserURLs(userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user URLs: %w", err)
 	}
-	
+
+	result := make([]repository.URLData, len(urls))
 	for i := range urls {
-		if fullURL, err := url.JoinPath(s.baseURL, urls[i].ShortURL); err == nil {
-			urls[i].ShortURL = fullURL
+		shortURL := urls[i].ShortURL
+		if fullURL, err := url.JoinPath(s.baseURL, shortURL); err == nil {
+			shortURL = fullURL
+		}
+		result[i] = repository.URLData{
+			ShortURL:    shortURL,
+			OriginalURL: urls[i].OriginalURL,
 		}
 	}
-	
-	return urls, nil
+
+	return result, nil
 }
