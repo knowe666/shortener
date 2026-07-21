@@ -61,8 +61,8 @@ func (c *Config) Validate() error {
 	if c.BaseURL == "" {
 		return fmt.Errorf("base URL cannot be empty")
 	}
-	if c.FileStoragePath == "" {
-		return fmt.Errorf("file storage path cannot be empty")
+	if c.DatabaseDSN == "" && c.FileStoragePath == "" {
+		return fmt.Errorf("either database DSN or file storage path must be provided")
 	}
 	return nil
 }

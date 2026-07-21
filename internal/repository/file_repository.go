@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
 type URLRecord struct {
@@ -19,6 +21,7 @@ type FileURLRepository struct {
 	urls     map[string]string // shortID -> originalURL
 	cache    map[string]string // originalURL -> shortID
 	userURLs map[string][]string
+	deleted  map[string]bool // shortID -> флаг удаления
 }
 
 func NewFileURLRepository(filePath string) (*FileURLRepository, error) {
@@ -27,9 +30,9 @@ func NewFileURLRepository(filePath string) (*FileURLRepository, error) {
 		urls:     make(map[string]string),
 		cache:    make(map[string]string),
 		userURLs: make(map[string][]string),
+		deleted:  make(map[string]bool), // Инициализируем карту удалённых
 	}
 
-	// Загружаем существующие данные из файла
 	if err := repo.loadFromFile(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -52,6 +55,10 @@ func (r *FileURLRepository) GetUserURLs(userID string) ([]URLData, error) {
 
 	result := make([]URLData, 0, len(shortIDs))
 	for _, shortID := range shortIDs {
+		// Пропускаем удалённые URL
+		if r.deleted[shortID] {
+			continue
+		}
 		originalURL, ok := r.urls[shortID]
 		if ok {
 			result = append(result, URLData{
@@ -78,7 +85,9 @@ func (r *FileURLRepository) Save(shortID, originalURL, userID string) error {
 	}
 
 	r.urls[shortID] = originalURL
-	r.cache[originalURL] = shortID
+	if _, exists := r.cache[originalURL]; !exists {
+		r.cache[originalURL] = shortID
+	}
 	r.userURLs[userID] = append(r.userURLs[userID], shortID)
 	return r.saveToFile()
 }
@@ -89,6 +98,11 @@ func (r *FileURLRepository) Get(shortID string) (string, error) {
 
 	if shortID == "" {
 		return "", EmptyIDError
+	}
+
+	// Проверяем, не удалён ли URL
+	if r.deleted[shortID] {
+		return "", DeletedError
 	}
 
 	originalURL, exists := r.urls[shortID]
@@ -103,7 +117,7 @@ func (r *FileURLRepository) saveToFile() error {
 	i := 1
 	for shortID, originalURL := range r.urls {
 		records = append(records, URLRecord{
-			UUID:        string(rune(i + 48)), // просто для примера, лучше использовать реальный UUID
+			UUID:        uuid.New().String(),
 			ShortURL:    shortID,
 			OriginalURL: originalURL,
 		})
@@ -131,7 +145,7 @@ func (r *FileURLRepository) loadFromFile() error {
 
 	for _, record := range records {
 		r.urls[record.ShortURL] = record.OriginalURL
-		r.cache[record.ShortURL] = record.UUID
+		r.cache[record.OriginalURL] = record.ShortURL
 	}
 	return nil
 }
@@ -145,4 +159,32 @@ func (r *FileURLRepository) GetAll() map[string]string {
 		result[k] = v
 	}
 	return result
+}
+
+func (r *FileURLRepository) DeleteUserURLs(userID string, shortIDs []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if userID == "" {
+		return errors.New("user ID cannot be empty")
+	}
+	if len(shortIDs) == 0 {
+		return nil
+	}
+
+	// Проверяем владение и помечаем как удалённые
+	for _, shortID := range shortIDs {
+		found := false
+		for _, id := range r.userURLs[userID] {
+			if id == shortID {
+				found = true
+				break
+			}
+		}
+		if found {
+			r.deleted[shortID] = true
+		}
+	}
+
+	return r.saveToFile()
 }

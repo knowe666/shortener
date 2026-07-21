@@ -156,6 +156,12 @@ func (h *URLHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 
 	originalURL, err := h.service.GetOriginalURL(shortID)
 	if err != nil {
+		// Проверяем, удалён ли URL
+		if errors.Is(err, business.DeletedError) {
+			h.logger.Warn("URL was deleted", zap.String("shortID", shortID))
+			http.Error(w, "URL has been deleted", http.StatusGone) // 410 Gone
+			return
+		}
 		h.logger.Warn("Short URL not found", zap.String("shortID", shortID), zap.Error(err))
 		http.Error(w, "Short URL not found", http.StatusNotFound)
 		return

@@ -9,14 +9,14 @@ import (
 	"go.uber.org/zap"
 )
 
-type gzipWriter struct {
-	http.ResponseWriter
-	Writer io.Writer
-}
+// type gzipWriter struct {
+// 	http.ResponseWriter
+// 	Writer io.Writer
+// }
 
-func (w *gzipWriter) Write(b []byte) (int, error) {
-	return w.Writer.Write(b)
-}
+// func (w *gzipWriter) Write(b []byte) (int, error) {
+// 	return w.Writer.Write(b)
+// }
 
 type customResponseWriter struct {
 	http.ResponseWriter

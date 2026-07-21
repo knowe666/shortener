@@ -65,12 +65,16 @@ func (r *PostgresURLRepository) initSchema() error {
 		id SERIAL PRIMARY KEY,
 		short_id VARCHAR(20) UNIQUE NOT NULL,
 		original_url TEXT NOT NULL,
+		user_id VARCHAR(36) NOT NULL,
+		is_deleted BOOLEAN DEFAULT FALSE,
 		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_short_id ON urls(short_id);
 	CREATE INDEX IF NOT EXISTS idx_original_url ON urls(original_url);
+	CREATE INDEX IF NOT EXISTS idx_user_id ON urls(user_id);
+	CREATE INDEX IF NOT EXISTS idx_is_deleted ON urls(is_deleted);
 	`
 
 	_, err := r.db.Exec(query)
@@ -85,7 +89,7 @@ func (r *PostgresURLRepository) GetUserURLs(userID string) ([]URLData, error) {
 		return nil, errors.New("user ID cannot be empty")
 	}
 
-	query := `SELECT short_id, original_url FROM urls WHERE user_id = $1 ORDER BY created_at DESC`
+	query := `SELECT short_id, original_url, is_deleted FROM urls WHERE user_id = $1 AND is_deleted = false ORDER BY created_at DESC`
 	var urls []URLData
 	err := r.db.Select(&urls, query, userID)
 	if err != nil {
@@ -107,17 +111,18 @@ func (r *PostgresURLRepository) Save(shortID, originalURL, userID string) error 
 	if originalURL == "" {
 		return errors.New("original URL cannot be empty")
 	}
-	// Используем INSERT ... ON CONFLICT для атомарной проверки
-	// Если конфликт по original_url - возвращаем существующий short_id
-	// Если конфликт по short_id - возвращаем ошибку
+	if userID == "" {
+		return errors.New("user ID cannot be empty")
+	}
+
 	query := `
-		INSERT INTO urls (short_id, original_url)
-		VALUES ($1, $2)
+		INSERT INTO urls (short_id, original_url, user_id)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (original_url) DO NOTHING
 		RETURNING short_id
 	`
 	var existingShortID string
-	err := r.db.QueryRowx(query, shortID, originalURL).Scan(&existingShortID)
+	err := r.db.QueryRowx(query, shortID, originalURL, userID).Scan(&existingShortID)
 	if err != nil {
 		// Проверяем, является ли ошибка нарушением уникальности по short_id
 		var pgErr *pgconn.PgError
@@ -145,14 +150,18 @@ func (r *PostgresURLRepository) Get(shortID string) (string, error) {
 		return "", EmptyIDError
 	}
 
-	query := `SELECT original_url FROM urls WHERE short_id = $1`
+	query := `SELECT original_url, is_deleted FROM urls WHERE short_id = $1`
 	var originalURL string
-	err := r.db.Get(&originalURL, query, shortID)
+	var isDeleted bool
+	err := r.db.QueryRowx(query, shortID).Scan(&originalURL, &isDeleted)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", NotFoundIDError
 		}
 		return "", fmt.Errorf("failed to get URL: %w", err)
+	}
+	if isDeleted {
+		return "", DeletedError
 	}
 	return originalURL, nil
 }
@@ -211,4 +220,28 @@ func (r *PostgresURLRepository) GetAll() (map[string]string, error) {
 	}
 
 	return result, nil
+}
+
+func (r *PostgresURLRepository) DeleteUserURLs(userID string, shortIDs []string) error {
+	if userID == "" {
+		return errors.New("user ID cannot be empty")
+	}
+	if len(shortIDs) == 0 {
+		return nil
+	}
+
+	// Массовое обновление через ANY для эффективности
+	query := `UPDATE urls SET is_deleted = true, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1 AND short_id = ANY($2) AND is_deleted = false`
+	result, err := r.db.Exec(query, userID, shortIDs)
+	if err != nil {
+		return fmt.Errorf("failed to delete URLs: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// Строки не обновлены - возможно уже удалены или не принадлежат пользователю
+		// Всё равно возвращаем nil, так как не нужно уведомлять о конкретных ошибках
+	}
+
+	return nil
 }

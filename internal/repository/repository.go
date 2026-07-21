@@ -11,7 +11,8 @@ import (
 type URLRepository interface {
 	Save(shortID, originalURL, userID string) error
 	Get(shortID string) (string, error)
-	GetUserURLs(userID string) ([]URLData, error) // НОВЫЙ МЕТОД
+	GetUserURLs(userID string) ([]URLData, error)
+	DeleteUserURLs(userID string, shortIDs []string) error
 }
 
 // Pingable интерфейс для репозиториев, поддерживающих проверку соединения
@@ -23,12 +24,14 @@ type Pingable interface {
 type URLData struct {
 	ShortURL    string `json:"short_url"`
 	OriginalURL string `json:"original_url"`
+	DeletedFlag bool   `json:"-"`
 }
 
 var (
 	NotFoundIDError  = errors.New("short URL not found for ID")
 	EmptyIDError     = errors.New("short ID cannot be empty")
 	DuplicateIDError = errors.New("short ID already exists")
+	DeletedError     = errors.New("URL has been deleted")
 )
 
 // DuplicateOriginalURLError- ошибка, которая возникает при попытке сохранить уже существующий URL
@@ -47,14 +50,15 @@ type InMemoryURLRepository struct {
 	urls     map[string]string // shortID -> originalURL
 	cache    map[string]string // originalURL -> shortID (обратный мап)
 	userURLs map[string][]string
+	deleted  map[string]bool // shortID -> флаг удаления
 }
 
-// NewInMemoryURLRepository создаёт новый экземпляр репозитория
 func NewInMemoryURLRepository() *InMemoryURLRepository {
 	return &InMemoryURLRepository{
 		urls:     make(map[string]string),
 		cache:    make(map[string]string),
 		userURLs: make(map[string][]string),
+		deleted:  make(map[string]bool),
 	}
 }
 
@@ -73,6 +77,10 @@ func (r *InMemoryURLRepository) GetUserURLs(userID string) ([]URLData, error) {
 
 	result := make([]URLData, 0, len(shortIDs))
 	for _, shortID := range shortIDs {
+		// Пропускаем удалённые URL
+		if r.deleted[shortID] {
+			continue
+		}
 		originalURL, ok := r.urls[shortID]
 		if ok {
 			result = append(result, URLData{
@@ -82,6 +90,34 @@ func (r *InMemoryURLRepository) GetUserURLs(userID string) ([]URLData, error) {
 		}
 	}
 	return result, nil
+}
+
+func (r *InMemoryURLRepository) DeleteUserURLs(userID string, shortIDs []string) error {
+	if userID == "" {
+		return fmt.Errorf("user ID cannot be empty")
+	}
+	if len(shortIDs) == 0 {
+		return nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Проверяем владение и помечаем как удалённые
+	for _, shortID := range shortIDs {
+		found := false
+		for _, id := range r.userURLs[userID] {
+			if id == shortID {
+				found = true
+				break
+			}
+		}
+		if found {
+			r.deleted[shortID] = true
+		}
+	}
+
+	return nil
 }
 
 // Save сохраняет короткую ссылку
@@ -116,6 +152,12 @@ func (r *InMemoryURLRepository) Get(shortID string) (string, error) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// Проверяем, не удалён ли URL
+	if r.deleted[shortID] {
+		return "", DeletedError
+	}
+
 	originalURL, exists := r.urls[shortID]
 	if !exists {
 		return "", NotFoundIDError

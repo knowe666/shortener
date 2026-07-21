@@ -40,12 +40,12 @@ func (m *MockURLService) GetOriginalURL(shortID string) (string, error) {
 	return "https://example.com", nil
 }
 
-func (m *MockURLService) GetUserURLs(userID string) ([]business.UserURLData, error) {
+func (m *MockURLService) GetUserURLs(userID string) ([]repository.URLData, error) {
 	if userID == "" {
 		return nil, errors.New("user ID cannot be empty")
 	}
 
-	return []business.UserURLData{
+	return []repository.URLData{
 		{
 			ShortURL:    "http://localhost:8080/abc123",
 			OriginalURL: "https://example.com",
