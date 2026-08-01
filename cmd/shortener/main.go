@@ -24,7 +24,10 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to load config: ", err)
 	}
-	auth.InitAuth("your-secret-key")
+	authenticator, err := auth.NewAuthenticator(cfg.AuthSecret)
+	if err != nil {
+		log.Fatal("Failed to initialize auth: ", err)
+	}
 	log.Printf("Server starting on %s", cfg.ServerAddress)
 	log.Printf("Base URL for short links: %s", cfg.BaseURL)
 
@@ -61,7 +64,7 @@ func main() {
 	}
 
 	urlService := business.NewURLShortenerService(urlRepo, cfg.BaseURL)
-	urlHandler := transport.NewURLHandler(urlService)
+	urlHandler := transport.NewURLHandler(urlService, authenticator)
 	router := transport.SetupRouter(urlHandler)
 
 	// Создаем HTTP сервер

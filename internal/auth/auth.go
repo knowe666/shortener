@@ -21,16 +21,27 @@ const (
 var (
 	ErrInvalidCookie = errors.New("invalid or expired cookie")
 	ErrNoCookie      = errors.New("no cookie found")
-	secretKey        []byte
 )
 
-// InitAuth инициализирует секретный ключ для подписи
-func InitAuth(secret string) {
-	secretKey = []byte(secret)
-	if len(secretKey) == 0 {
-		// Если секрет не задан, используем случайный
-		secretKey = []byte("default-secret-key-change-me-in-production")
+// Authenticator описывает контракт для работы с cookie-аутентификацией.
+type Authenticator interface {
+	GetUserIDFromCookie(r *http.Request) (string, error)
+	SetUserCookie(w http.ResponseWriter, userID string)
+	GetOrCreateUserID(w http.ResponseWriter, r *http.Request) string
+}
+
+// CookieAuthenticator хранит секретный ключ и реализует cookie-аутентификацию.
+type CookieAuthenticator struct {
+	secretKey []byte
+}
+
+// NewAuthenticator создаёт экземпляр аутентификатора с injected секретом.
+func NewAuthenticator(secret string) (*CookieAuthenticator, error) {
+	if secret == "" {
+		return nil, errors.New("auth secret cannot be empty")
 	}
+
+	return &CookieAuthenticator{secretKey: []byte(secret)}, nil
 }
 
 // GenerateUserID генерирует новый уникальный ID пользователя
@@ -39,21 +50,21 @@ func GenerateUserID() string {
 }
 
 // signUserID создает подпись для userID
-func signUserID(userID string) string {
-	mac := hmac.New(sha256.New, secretKey)
+func (a *CookieAuthenticator) signUserID(userID string) string {
+	mac := hmac.New(sha256.New, a.secretKey)
 	mac.Write([]byte(userID))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // verifySignature проверяет подпись userID
-func verifySignature(userID, signature string) bool {
-	expected := signUserID(userID)
+func (a *CookieAuthenticator) verifySignature(userID, signature string) bool {
+	expected := a.signUserID(userID)
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
 // SetUserCookie устанавливает подписанную куку с userID
-func SetUserCookie(w http.ResponseWriter, userID string) {
-	signature := signUserID(userID)
+func (a *CookieAuthenticator) SetUserCookie(w http.ResponseWriter, userID string) {
+	signature := a.signUserID(userID)
 	cookieValue := base64.URLEncoding.EncodeToString([]byte(userID + ":" + signature))
 
 	http.SetCookie(w, &http.Cookie{
@@ -68,7 +79,7 @@ func SetUserCookie(w http.ResponseWriter, userID string) {
 }
 
 // GetUserIDFromCookie извлекает и проверяет userID из куки
-func GetUserIDFromCookie(r *http.Request) (string, error) {
+func (a *CookieAuthenticator) GetUserIDFromCookie(r *http.Request) (string, error) {
 	cookie, err := r.Cookie(cookieName)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
@@ -93,7 +104,7 @@ func GetUserIDFromCookie(r *http.Request) (string, error) {
 	signature := parts[1]
 
 	// Проверяем подпись
-	if !verifySignature(userID, signature) {
+	if !a.verifySignature(userID, signature) {
 		return "", ErrInvalidCookie
 	}
 
@@ -101,29 +112,14 @@ func GetUserIDFromCookie(r *http.Request) (string, error) {
 }
 
 // GetOrCreateUserID возвращает существующий userID из куки или создает новый
-func GetOrCreateUserID(w http.ResponseWriter, r *http.Request) string {
-	userID, err := GetUserIDFromCookie(r)
+func (a *CookieAuthenticator) GetOrCreateUserID(w http.ResponseWriter, r *http.Request) string {
+	userID, err := a.GetUserIDFromCookie(r)
 	if err == nil {
 		return userID
 	}
 
 	// Генерируем новый ID
 	newUserID := GenerateUserID()
-	SetUserCookie(w, newUserID)
+	a.SetUserCookie(w, newUserID)
 	return newUserID
-}
-
-// Middleware для проверки аутентификации (требует наличия валидной куки)
-func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := GetUserIDFromCookie(r)
-		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		// Добавляем userID в контекст запроса для дальнейшего использования
-		ctx := SetUserIDToContext(r.Context(), userID)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	}
 }

@@ -15,14 +15,16 @@ import (
 
 // URLHandler обработчик HTTP запросов
 type URLHandler struct {
-	service URLService
-	logger  *zap.Logger
+	service       URLService
+	authenticator auth.Authenticator
+	logger        *zap.Logger
 }
 
-func NewURLHandler(service URLService) *URLHandler {
+func NewURLHandler(service URLService, authenticator auth.Authenticator) *URLHandler {
 	return &URLHandler{
-		service: service,
-		logger:  GetLogger(),
+		service:       service,
+		authenticator: authenticator,
+		logger:        GetLogger(),
 	}
 }
 
@@ -35,7 +37,13 @@ type shortenResponse struct {
 }
 
 func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
-	userID := auth.GetOrCreateUserID(w, r)
+	userID, err := h.authenticator.GetUserIDFromCookie(r)
+	if err != nil {
+		h.logger.Warn("Failed to get user ID from cookie", zap.Error(err))
+		userID = auth.GenerateUserID()
+		h.authenticator.SetUserCookie(w, userID)
+	}
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		h.logger.Error("Failed to read request body", zap.Error(err))
@@ -86,7 +94,13 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
-	userID := auth.GetOrCreateUserID(w, r)
+	userID, err := h.authenticator.GetUserIDFromCookie(r)
+	if err != nil {
+		h.logger.Warn("Failed to get user ID from cookie", zap.Error(err))
+		userID = auth.GenerateUserID()
+		h.authenticator.SetUserCookie(w, userID)
+	}
+
 	if r.Header.Get("Content-Type") != "application/json" {
 		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
 		return

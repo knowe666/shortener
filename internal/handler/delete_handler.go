@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/knowe666/shortener/internal/auth"
 	"go.uber.org/zap"
 )
 
@@ -13,7 +12,7 @@ import (
 // Возвращает 202 Accepted
 func (h *URLHandler) HandleDeleteUserURLs(w http.ResponseWriter, r *http.Request) {
 	// Получаем ID пользователя из куки
-	userID, err := auth.GetUserIDFromCookie(r)
+	userID, err := h.authenticator.GetUserIDFromCookie(r)
 	if err != nil {
 		h.logger.Warn("Unauthorized access to delete URLs", zap.Error(err))
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)

@@ -100,7 +100,11 @@ func (s *URLShortenerService) CreateShortURL(originalURL, userID string) (string
 	oldShortID, exists := s.cache[originalURL]
 	if exists {
 		s.mu.Unlock()
-		return url.JoinPath(s.baseURL, oldShortID)
+		fullURL, err := url.JoinPath(s.baseURL, oldShortID)
+		if err != nil {
+			return "", err
+		}
+		return fullURL, DuplicateError
 	}
 	s.mu.Unlock()
 
@@ -110,7 +114,11 @@ func (s *URLShortenerService) CreateShortURL(originalURL, userID string) (string
 			s.mu.Lock()
 			s.cache[originalURL] = shortID
 			s.mu.Unlock()
-			return url.JoinPath(s.baseURL, shortID)
+			fullURL, err := url.JoinPath(s.baseURL, shortID)
+			if err != nil {
+				return "", err
+			}
+			return fullURL, DuplicateError
 		}
 	}
 
@@ -139,7 +147,11 @@ func (s *URLShortenerService) CreateShortURL(originalURL, userID string) (string
 		s.mu.Lock()
 		s.cache[originalURL] = id // Сохраняем в кэш
 		s.mu.Unlock()
-		return url.JoinPath(s.baseURL, id)
+		fullURL, err := url.JoinPath(s.baseURL, id)
+		if err != nil {
+			return "", err
+		}
+		return fullURL, nil
 	}
 	return "", FailedToGenerateIDError
 }

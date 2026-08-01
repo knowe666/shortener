@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/knowe666/shortener/internal/auth"
 	"github.com/knowe666/shortener/internal/repository"
 	business "github.com/knowe666/shortener/internal/service"
 )
@@ -108,7 +109,8 @@ func TestURLHandler_HandlePost(t *testing.T) {
 				tt.setupMock(mockService)
 			}
 
-			handler := NewURLHandler(mockService)
+			authenticator, _ := auth.NewAuthenticator("test-secret")
+			handler := NewURLHandler(mockService, authenticator)
 
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tt.requestBody))
 			w := httptest.NewRecorder()
@@ -174,7 +176,8 @@ func TestURLHandler_HandleGet(t *testing.T) {
 				tt.setupMock(mockService)
 			}
 
-			handler := NewURLHandler(mockService)
+			authenticator, _ := auth.NewAuthenticator("test-secret")
+			handler := NewURLHandler(mockService, authenticator)
 
 			req := httptest.NewRequest(http.MethodGet, "/"+tt.shortID, nil)
 			w := httptest.NewRecorder()
@@ -199,7 +202,8 @@ func TestSetupRouter(t *testing.T) {
 	InitLogger()
 
 	mockService := &MockURLService{}
-	handler := NewURLHandler(mockService)
+	authenticator, _ := auth.NewAuthenticator("test-secret")
+	handler := NewURLHandler(mockService, authenticator)
 	router := SetupRouter(handler)
 
 	// Тестируем POST маршрут
@@ -229,7 +233,8 @@ func TestSetupRouter_WithGzip(t *testing.T) {
 	InitLogger()
 
 	mockService := &MockURLService{}
-	handler := NewURLHandler(mockService)
+	authenticator, _ := auth.NewAuthenticator("test-secret")
+	handler := NewURLHandler(mockService, authenticator)
 	router := SetupRouter(handler)
 
 	// Тестируем POST с gzip поддержкой
@@ -273,7 +278,8 @@ func TestIntegration_CompleteFlow(t *testing.T) {
 	if service == nil {
 		t.Fatal("Service is nil")
 	}
-	handler := NewURLHandler(service)
+	authenticator, _ := auth.NewAuthenticator("test-secret")
+	handler := NewURLHandler(service, authenticator)
 	router := SetupRouter(handler)
 
 	// 1. Создаём короткую ссылку
