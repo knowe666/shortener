@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
 type URLRecord struct {
@@ -17,17 +19,20 @@ type FileURLRepository struct {
 	mu       sync.Mutex
 	filePath string
 	urls     map[string]string // shortID -> originalURL
-	uuidMap  map[string]string // shortID -> uuid
+	cache    map[string]string // originalURL -> shortID
+	userURLs map[string][]string
+	deleted  map[string]bool // shortID -> флаг удаления
 }
 
 func NewFileURLRepository(filePath string) (*FileURLRepository, error) {
 	repo := &FileURLRepository{
 		filePath: filePath,
 		urls:     make(map[string]string),
-		uuidMap:  make(map[string]string),
+		cache:    make(map[string]string),
+		userURLs: make(map[string][]string),
+		deleted:  make(map[string]bool), // Инициализируем карту удалённых
 	}
 
-	// Загружаем существующие данные из файла
 	if err := repo.loadFromFile(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -35,21 +40,55 @@ func NewFileURLRepository(filePath string) (*FileURLRepository, error) {
 	return repo, nil
 }
 
-func (r *FileURLRepository) Save(shortID, originalURL string) error {
+func (r *FileURLRepository) GetUserURLs(userID string) ([]URLData, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if userID == "" {
+		return nil, errors.New("user ID cannot be empty")
+	}
+
+	shortIDs, exists := r.userURLs[userID]
+	if !exists || len(shortIDs) == 0 {
+		return []URLData{}, nil
+	}
+
+	result := make([]URLData, 0, len(shortIDs))
+	for _, shortID := range shortIDs {
+		// Пропускаем удалённые URL
+		if r.deleted[shortID] {
+			continue
+		}
+		originalURL, ok := r.urls[shortID]
+		if ok {
+			result = append(result, URLData{
+				ShortURL:    shortID,
+				OriginalURL: originalURL,
+			})
+		}
+	}
+	return result, nil
+}
+
+func (r *FileURLRepository) Save(shortID, originalURL, userID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if shortID == "" {
-		return ErrEmptyID
+		return EmptyIDError
 	}
 	if originalURL == "" {
 		return errors.New("original URL cannot be empty")
 	}
 	if _, exists := r.urls[shortID]; exists {
-		return ErrDuplicateID
+		return DuplicateIDError
 	}
 
 	r.urls[shortID] = originalURL
+	if _, exists := r.cache[originalURL]; !exists {
+		r.cache[originalURL] = shortID
+	}
+	r.userURLs[userID] = append(r.userURLs[userID], shortID)
 	return r.saveToFile()
 }
 
@@ -58,12 +97,17 @@ func (r *FileURLRepository) Get(shortID string) (string, error) {
 	defer r.mu.Unlock()
 
 	if shortID == "" {
-		return "", ErrEmptyID
+		return "", EmptyIDError
+	}
+
+	// Проверяем, не удалён ли URL
+	if r.deleted[shortID] {
+		return "", DeletedError
 	}
 
 	originalURL, exists := r.urls[shortID]
 	if !exists {
-		return "", ErrNotFoundID
+		return "", NotFoundIDError
 	}
 	return originalURL, nil
 }
@@ -73,7 +117,7 @@ func (r *FileURLRepository) saveToFile() error {
 	i := 1
 	for shortID, originalURL := range r.urls {
 		records = append(records, URLRecord{
-			UUID:        string(rune(i + 48)), // просто для примера, лучше использовать реальный UUID
+			UUID:        uuid.New().String(),
 			ShortURL:    shortID,
 			OriginalURL: originalURL,
 		})
@@ -101,7 +145,7 @@ func (r *FileURLRepository) loadFromFile() error {
 
 	for _, record := range records {
 		r.urls[record.ShortURL] = record.OriginalURL
-		r.uuidMap[record.ShortURL] = record.UUID
+		r.cache[record.OriginalURL] = record.ShortURL
 	}
 	return nil
 }
@@ -115,4 +159,32 @@ func (r *FileURLRepository) GetAll() map[string]string {
 		result[k] = v
 	}
 	return result
+}
+
+func (r *FileURLRepository) DeleteUserURLs(userID string, shortIDs []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if userID == "" {
+		return errors.New("user ID cannot be empty")
+	}
+	if len(shortIDs) == 0 {
+		return nil
+	}
+
+	// Проверяем владение и помечаем как удалённые
+	for _, shortID := range shortIDs {
+		found := false
+		for _, id := range r.userURLs[userID] {
+			if id == shortID {
+				found = true
+				break
+			}
+		}
+		if found {
+			r.deleted[shortID] = true
+		}
+	}
+
+	return r.saveToFile()
 }

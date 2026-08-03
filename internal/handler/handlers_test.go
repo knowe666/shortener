@@ -2,24 +2,34 @@ package transport
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/knowe666/shortener/internal/auth"
 	"github.com/knowe666/shortener/internal/repository"
 	business "github.com/knowe666/shortener/internal/service"
 )
 
 // Mock сервиса для тестирования транспортного слоя
 type MockURLService struct {
-	createShortURLFunc func(originalURL string) (string, error)
+	createShortURLFunc func(originalURL, userID string) (string, error)
 	getOriginalURLFunc func(shortID string) (string, error)
+	deleteUserURLsFunc func(userID string, shortIDs []string) error
 }
 
-func (m *MockURLService) CreateShortURL(originalURL string) (string, error) {
+func (m *MockURLService) DeleteUserURLs(userID string, shortIDs []string) error {
+	if m.deleteUserURLsFunc != nil {
+		return m.deleteUserURLsFunc(userID, shortIDs)
+	}
+	return nil
+}
+
+func (m *MockURLService) CreateShortURL(originalURL, userID string) (string, error) {
 	if m.createShortURLFunc != nil {
-		return m.createShortURLFunc(originalURL)
+		return m.createShortURLFunc(originalURL, userID)
 	}
 	return "http://localhost:8080/test123", nil
 }
@@ -29,6 +39,19 @@ func (m *MockURLService) GetOriginalURL(shortID string) (string, error) {
 		return m.getOriginalURLFunc(shortID)
 	}
 	return "https://example.com", nil
+}
+
+func (m *MockURLService) GetUserURLs(userID string) ([]repository.URLData, error) {
+	if userID == "" {
+		return nil, errors.New("user ID cannot be empty")
+	}
+
+	return []repository.URLData{
+		{
+			ShortURL:    "http://localhost:8080/abc123",
+			OriginalURL: "https://example.com",
+		},
+	}, nil
 }
 
 func TestURLHandler_HandlePost(t *testing.T) {
@@ -59,23 +82,23 @@ func TestURLHandler_HandlePost(t *testing.T) {
 			name:        "Duplicate URL",
 			requestBody: "https://duplicate.com",
 			setupMock: func(m *MockURLService) {
-				m.createShortURLFunc = func(originalURL string) (string, error) {
-					return "", business.ErrDuplicate
+				m.createShortURLFunc = func(originalURL, userID string) (string, error) {
+					return "", business.DuplicateError
 				}
 			},
 			expectedStatus: http.StatusConflict,
-			expectedBody:   business.ErrDuplicate.Error() + "\n",
+			expectedBody:   business.DuplicateError.Error() + "\n",
 		},
 		{
 			name:        "Invalid URL",
 			requestBody: "invalid-url",
 			setupMock: func(m *MockURLService) {
-				m.createShortURLFunc = func(originalURL string) (string, error) {
-					return "", business.ErrInvalidURL
+				m.createShortURLFunc = func(originalURL, userID string) (string, error) {
+					return "", business.InvalidURLError
 				}
 			},
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   business.ErrInvalidURL.Error() + "\n",
+			expectedBody:   business.InvalidURLError.Error() + "\n",
 		},
 	}
 
@@ -86,7 +109,8 @@ func TestURLHandler_HandlePost(t *testing.T) {
 				tt.setupMock(mockService)
 			}
 
-			handler := NewURLHandler(mockService)
+			authenticator, _ := auth.NewAuthenticator("test-secret")
+			handler := NewURLHandler(mockService, authenticator)
 
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tt.requestBody))
 			w := httptest.NewRecorder()
@@ -130,10 +154,21 @@ func TestURLHandler_HandleGet(t *testing.T) {
 			shortID: "notexist",
 			setupMock: func(m *MockURLService) {
 				m.getOriginalURLFunc = func(shortID string) (string, error) {
-					return "", business.ErrNotFound
+					return "", business.NotFoundError
 				}
 			},
 			expectedStatus:   http.StatusNotFound,
+			expectedLocation: "",
+		},
+		{
+			name:    "Deleted short ID",
+			shortID: "deleted123",
+			setupMock: func(m *MockURLService) {
+				m.getOriginalURLFunc = func(shortID string) (string, error) {
+					return "", repository.DeletedError
+				}
+			},
+			expectedStatus:   http.StatusGone,
 			expectedLocation: "",
 		},
 		{
@@ -152,7 +187,8 @@ func TestURLHandler_HandleGet(t *testing.T) {
 				tt.setupMock(mockService)
 			}
 
-			handler := NewURLHandler(mockService)
+			authenticator, _ := auth.NewAuthenticator("test-secret")
+			handler := NewURLHandler(mockService, authenticator)
 
 			req := httptest.NewRequest(http.MethodGet, "/"+tt.shortID, nil)
 			w := httptest.NewRecorder()
@@ -177,7 +213,8 @@ func TestSetupRouter(t *testing.T) {
 	InitLogger()
 
 	mockService := &MockURLService{}
-	handler := NewURLHandler(mockService)
+	authenticator, _ := auth.NewAuthenticator("test-secret")
+	handler := NewURLHandler(mockService, authenticator)
 	router := SetupRouter(handler)
 
 	// Тестируем POST маршрут
@@ -207,7 +244,8 @@ func TestSetupRouter_WithGzip(t *testing.T) {
 	InitLogger()
 
 	mockService := &MockURLService{}
-	handler := NewURLHandler(mockService)
+	authenticator, _ := auth.NewAuthenticator("test-secret")
+	handler := NewURLHandler(mockService, authenticator)
 	router := SetupRouter(handler)
 
 	// Тестируем POST с gzip поддержкой
@@ -251,7 +289,8 @@ func TestIntegration_CompleteFlow(t *testing.T) {
 	if service == nil {
 		t.Fatal("Service is nil")
 	}
-	handler := NewURLHandler(service)
+	authenticator, _ := auth.NewAuthenticator("test-secret")
+	handler := NewURLHandler(service, authenticator)
 	router := SetupRouter(handler)
 
 	// 1. Создаём короткую ссылку

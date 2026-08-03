@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"net/http"
 	"strings"
+
+	"github.com/knowe666/shortener/internal/auth"
+	"github.com/knowe666/shortener/internal/repository"
 
 	business "github.com/knowe666/shortener/internal/service"
 	"go.uber.org/zap"
@@ -14,14 +16,22 @@ import (
 
 // URLHandler обработчик HTTP запросов
 type URLHandler struct {
-	service URLService
-	logger  *zap.Logger
+	service       URLService
+	authenticator auth.Authenticator
+	logger        *zap.Logger
+	deleteBatcher *business.DeleteBatcher
 }
 
-func NewURLHandler(service URLService) *URLHandler {
+func NewURLHandler(service URLService, authenticator auth.Authenticator) *URLHandler {
+	return NewURLHandlerWithDeleteBatcher(service, authenticator, nil)
+}
+
+func NewURLHandlerWithDeleteBatcher(service URLService, authenticator auth.Authenticator, deleteBatcher *business.DeleteBatcher) *URLHandler {
 	return &URLHandler{
-		service: service,
-		logger:  GetLogger(),
+		service:       service,
+		authenticator: authenticator,
+		logger:        GetLogger(),
+		deleteBatcher: deleteBatcher,
 	}
 }
 
@@ -34,13 +44,20 @@ type shortenResponse struct {
 }
 
 func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.authenticator.GetUserIDFromCookie(r)
+	if err != nil {
+		h.logger.Warn("Failed to get user ID from cookie", zap.Error(err))
+		userID = auth.GenerateUserID()
+		h.authenticator.SetUserCookie(w, userID)
+	}
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		h.logger.Error("Failed to read request body", zap.Error(err))
 		http.Error(w, "Failed to read body", http.StatusBadRequest)
 		return
 	}
 
-	log.Print("body " + string(body))
 	originalURL := strings.TrimSpace(string(body))
 	h.logger.Info("POST request", zap.String("url", originalURL))
 
@@ -49,17 +66,25 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL, err := h.service.CreateShortURL(originalURL)
+	shortURL, err := h.service.CreateShortURL(originalURL, userID)
 	if err != nil {
 		h.logger.Error("Failed to create short URL", zap.Error(err))
 		switch {
-		case errors.Is(err, business.ErrInvalidURL):
+		case errors.Is(err, business.InvalidURLError):
 			http.Error(w, err.Error(), http.StatusBadRequest)
-		case errors.Is(err, business.ErrDuplicate):
-			http.Error(w, err.Error(), http.StatusConflict)
-		case errors.Is(err, business.ErrFailedToGenerateID):
+		case errors.Is(err, business.DuplicateError):
+			// Возвращаем 409 Conflict с существующим коротким URL
+			h.logger.Info("Duplicate URL detected, returning existing short URL",
+				zap.String("short_url", shortURL))
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusConflict)
+			if _, err := w.Write([]byte(shortURL)); err != nil {
+				h.logger.Error("Failed to write response", zap.Error(err))
+			}
+			return
+		case errors.Is(err, business.FailedToGenerateIDError):
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		case errors.Is(err, business.ErrFailedToSave):
+		case errors.Is(err, business.FailedToSaveError):
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		default:
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -70,10 +95,19 @@ func (h *URLHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info("Short URL created", zap.String("short_url", shortURL))
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte(shortURL))
+	if _, err := w.Write([]byte(shortURL)); err != nil {
+		h.logger.Error("Failed to write response", zap.Error(err))
+	}
 }
 
 func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.authenticator.GetUserIDFromCookie(r)
+	if err != nil {
+		h.logger.Warn("Failed to get user ID from cookie", zap.Error(err))
+		userID = auth.GenerateUserID()
+		h.authenticator.SetUserCookie(w, userID)
+	}
+
 	if r.Header.Get("Content-Type") != "application/json" {
 		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
 		return
@@ -82,6 +116,7 @@ func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
 	var req shortenRequest
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&req); err != nil {
+		h.logger.Error("Failed to decode JSON request", zap.Error(err))
 		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
@@ -91,16 +126,27 @@ func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL, err := h.service.CreateShortURL(req.URL)
+	shortURL, err := h.service.CreateShortURL(req.URL, userID)
 	if err != nil {
 		switch {
-		case errors.Is(err, business.ErrInvalidURL):
+		case errors.Is(err, business.InvalidURLError):
 			http.Error(w, err.Error(), http.StatusBadRequest)
-		case errors.Is(err, business.ErrDuplicate):
-			http.Error(w, err.Error(), http.StatusConflict)
-		case errors.Is(err, business.ErrFailedToGenerateID):
+		case errors.Is(err, business.DuplicateError):
+			// Возвращаем 409 Conflict с существующим коротким URL в JSON формате
+			h.logger.Info("Duplicate URL detected, returning existing short URL",
+				zap.String("short_url", shortURL))
+			response := shortenResponse{
+				Result: shortURL,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				h.logger.Error("Failed to encode JSON response", zap.Error(err))
+			}
+			return
+		case errors.Is(err, business.FailedToGenerateIDError):
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		case errors.Is(err, business.ErrFailedToSave):
+		case errors.Is(err, business.FailedToSaveError):
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		default:
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -111,12 +157,10 @@ func (h *URLHandler) HandleAPIShorten(w http.ResponseWriter, r *http.Request) {
 	response := shortenResponse{
 		Result: shortURL,
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		logger.Error("Failed to encode JSON response", zap.Error(err))
+		h.logger.Error("Failed to encode JSON response", zap.Error(err))
 	}
 }
 
@@ -133,6 +177,12 @@ func (h *URLHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 
 	originalURL, err := h.service.GetOriginalURL(shortID)
 	if err != nil {
+		// Проверяем, удалён ли URL
+		if errors.Is(err, repository.DeletedError) {
+			h.logger.Warn("URL was deleted", zap.String("shortID", shortID))
+			http.Error(w, "URL has been deleted", http.StatusGone) // 410 Gone
+			return
+		}
 		h.logger.Warn("Short URL not found", zap.String("shortID", shortID), zap.Error(err))
 		http.Error(w, "Short URL not found", http.StatusNotFound)
 		return
@@ -149,8 +199,11 @@ func (h *URLHandler) HandlePing(w http.ResponseWriter, r *http.Request) {
 	pingable, ok := h.service.(interface{ Ping() error })
 	if !ok {
 		// Если репозиторий не поддерживает Ping, считаем что всё работает
+		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		if _, err := w.Write([]byte("OK")); err != nil {
+			h.logger.Error("Failed to write response", zap.Error(err))
+		}
 		return
 	}
 
@@ -160,6 +213,9 @@ func (h *URLHandler) HandlePing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	if _, err := w.Write([]byte("OK")); err != nil {
+		h.logger.Error("Failed to write response", zap.Error(err))
+	}
 }
