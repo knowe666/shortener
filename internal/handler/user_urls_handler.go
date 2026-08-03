@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/knowe666/shortener/internal/auth"
 	"go.uber.org/zap"
 )
 
 func (h *URLHandler) HandleUserURLs(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.authenticator.GetUserIDFromCookie(r)
-	if err != nil {
-		h.logger.Warn("Unauthorized access to user URLs", zap.Error(err))
+	userID, ok := auth.GetUserIDFromContext(r.Context())
+	if !ok || userID == "" {
+		h.logger.Warn("Unauthorized access to user URLs")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}

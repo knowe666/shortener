@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/knowe666/shortener/internal/auth"
 	config "github.com/knowe666/shortener/internal/config"
@@ -64,7 +66,9 @@ func main() {
 	}
 
 	urlService := business.NewURLShortenerService(urlRepo, cfg.BaseURL)
-	urlHandler := transport.NewURLHandler(urlService, authenticator)
+	deleteBatcher := business.NewDeleteBatcher(urlService, 100, 200*time.Millisecond)
+	deleteBatcher.Start()
+	urlHandler := transport.NewURLHandlerWithDeleteBatcher(urlService, authenticator, deleteBatcher)
 	router := transport.SetupRouter(urlHandler)
 
 	// Создаем HTTP сервер
@@ -87,6 +91,14 @@ func main() {
 	// Ждем сигнал остановки
 	<-stop
 	log.Println("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	}
+
+	deleteBatcher.Stop()
 
 	// Закрываем соединение с БД если есть
 	if cleanup != nil {

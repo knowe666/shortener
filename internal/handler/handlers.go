@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/knowe666/shortener/internal/auth"
+	"github.com/knowe666/shortener/internal/repository"
 
 	business "github.com/knowe666/shortener/internal/service"
 	"go.uber.org/zap"
@@ -18,13 +19,19 @@ type URLHandler struct {
 	service       URLService
 	authenticator auth.Authenticator
 	logger        *zap.Logger
+	deleteBatcher *business.DeleteBatcher
 }
 
 func NewURLHandler(service URLService, authenticator auth.Authenticator) *URLHandler {
+	return NewURLHandlerWithDeleteBatcher(service, authenticator, nil)
+}
+
+func NewURLHandlerWithDeleteBatcher(service URLService, authenticator auth.Authenticator, deleteBatcher *business.DeleteBatcher) *URLHandler {
 	return &URLHandler{
 		service:       service,
 		authenticator: authenticator,
 		logger:        GetLogger(),
+		deleteBatcher: deleteBatcher,
 	}
 }
 
@@ -171,7 +178,7 @@ func (h *URLHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 	originalURL, err := h.service.GetOriginalURL(shortID)
 	if err != nil {
 		// Проверяем, удалён ли URL
-		if errors.Is(err, business.DeletedError) {
+		if errors.Is(err, repository.DeletedError) {
 			h.logger.Warn("URL was deleted", zap.String("shortID", shortID))
 			http.Error(w, "URL has been deleted", http.StatusGone) // 410 Gone
 			return

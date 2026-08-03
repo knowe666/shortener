@@ -1,7 +1,9 @@
 package business
 
 import (
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/knowe666/shortener/internal/repository"
 )
@@ -109,5 +111,39 @@ func TestGenerateShortID(t *testing.T) {
 			t.Errorf("Duplicate ID generated: %s", id)
 		}
 		ids[id] = true
+	}
+}
+
+func TestDeleteBatcher_FlushesBatchedDeletes(t *testing.T) {
+	repo := repository.NewInMemoryURLRepository()
+	service := NewURLShortenerService(repo, "http://localhost:8080")
+	if _, err := service.CreateShortURL("https://example.com", "user1"); err != nil {
+		t.Fatalf("failed to seed URL: %v", err)
+	}
+
+	batcher := NewDeleteBatcher(service, 2, 10*time.Millisecond)
+	batcher.Start()
+	defer batcher.Stop()
+
+	var mu sync.Mutex
+	calls := 0
+	batcher.DeleteFunc = func(userID string, shortIDs []string) error {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		return service.DeleteUserURLs(userID, shortIDs)
+	}
+
+	batcher.Enqueue("user1", []string{"a1b2c3d4"})
+	batcher.Enqueue("user1", []string{"a1b2c3d4"})
+
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	got := calls
+	mu.Unlock()
+
+	if got == 0 {
+		t.Fatal("expected batcher to flush batched deletes")
 	}
 }

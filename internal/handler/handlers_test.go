@@ -161,6 +161,17 @@ func TestURLHandler_HandleGet(t *testing.T) {
 			expectedLocation: "",
 		},
 		{
+			name:    "Deleted short ID",
+			shortID: "deleted123",
+			setupMock: func(m *MockURLService) {
+				m.getOriginalURLFunc = func(shortID string) (string, error) {
+					return "", repository.DeletedError
+				}
+			},
+			expectedStatus:   http.StatusGone,
+			expectedLocation: "",
+		},
+		{
 			name:             "Empty ID",
 			shortID:          "",
 			setupMock:        nil,

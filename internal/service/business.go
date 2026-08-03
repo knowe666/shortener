@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/knowe666/shortener/internal/repository"
 )
@@ -36,6 +37,147 @@ type URLShortenerService struct {
 	cache   map[string]string // originalURL -> shortID (для быстрого поиска дубликатов)
 }
 
+type deleteBatchRequest struct {
+	userID   string
+	shortIDs []string
+}
+
+// DeleteBatcher аккумулирует запросы на удаление и отправляет их пачками.
+type DeleteBatcher struct {
+	DeleteFunc func(userID string, shortIDs []string) error
+
+	enqueueCh     chan deleteBatchRequest
+	flushInterval time.Duration
+	maxBatchSize  int
+	stopCh        chan struct{}
+	stopOnce      sync.Once
+	wg            sync.WaitGroup
+
+	mu      sync.Mutex
+	pending map[string]map[string]struct{}
+}
+
+// NewDeleteBatcher создаёт батчер для асинхронного удаления URL.
+func NewDeleteBatcher(service *URLShortenerService, maxBatchSize int, flushInterval time.Duration) *DeleteBatcher {
+	if maxBatchSize <= 0 {
+		maxBatchSize = 100
+	}
+	if flushInterval <= 0 {
+		flushInterval = 200 * time.Millisecond
+	}
+
+	return &DeleteBatcher{
+		DeleteFunc:    service.DeleteUserURLs,
+		enqueueCh:     make(chan deleteBatchRequest, 1024),
+		flushInterval: flushInterval,
+		maxBatchSize:  maxBatchSize,
+		stopCh:        make(chan struct{}),
+		pending:       make(map[string]map[string]struct{}),
+	}
+}
+
+func (b *DeleteBatcher) Start() {
+	b.wg.Add(1)
+	go b.run()
+}
+
+func (b *DeleteBatcher) Stop() {
+	b.stopOnce.Do(func() {
+		close(b.stopCh)
+	})
+	b.wg.Wait()
+}
+
+func (b *DeleteBatcher) Enqueue(userID string, shortIDs []string) error {
+	if userID == "" || len(shortIDs) == 0 {
+		return nil
+	}
+
+	select {
+	case <-b.stopCh:
+		return errors.New("delete batcher stopped")
+	case b.enqueueCh <- deleteBatchRequest{userID: userID, shortIDs: shortIDs}:
+		return nil
+	}
+}
+
+func (b *DeleteBatcher) run() {
+	defer b.wg.Done()
+
+	ticker := time.NewTicker(b.flushInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-b.stopCh:
+			b.drainQueue()
+			b.flushPending()
+			return
+		case req := <-b.enqueueCh:
+			b.collect(req)
+		case <-ticker.C:
+			b.flushPending()
+		}
+	}
+}
+
+func (b *DeleteBatcher) drainQueue() {
+	for {
+		select {
+		case req := <-b.enqueueCh:
+			b.collect(req)
+		default:
+			return
+		}
+	}
+}
+
+func (b *DeleteBatcher) collect(req deleteBatchRequest) {
+	b.mu.Lock()
+	if b.pending[req.userID] == nil {
+		b.pending[req.userID] = make(map[string]struct{})
+	}
+	for _, shortID := range req.shortIDs {
+		b.pending[req.userID][shortID] = struct{}{}
+	}
+
+	total := 0
+	for _, ids := range b.pending {
+		total += len(ids)
+	}
+	if total >= b.maxBatchSize {
+		b.mu.Unlock()
+		b.flushPending()
+		return
+	}
+	b.mu.Unlock()
+}
+
+func (b *DeleteBatcher) flushPending() {
+	b.mu.Lock()
+	if len(b.pending) == 0 {
+		b.mu.Unlock()
+		return
+	}
+
+	snapshot := make(map[string][]string, len(b.pending))
+	for userID, ids := range b.pending {
+		batch := make([]string, 0, len(ids))
+		for shortID := range ids {
+			batch = append(batch, shortID)
+		}
+		snapshot[userID] = batch
+		delete(b.pending, userID)
+	}
+	b.mu.Unlock()
+
+	for userID, shortIDs := range snapshot {
+		if b.DeleteFunc != nil {
+			_ = b.DeleteFunc(userID, shortIDs)
+		}
+	}
+}
+
 // NewURLShortenerService создаёт новый сервис
 func NewURLShortenerService(repo URLRepository, baseURL string) *URLShortenerService {
 	return &URLShortenerService{
@@ -48,10 +190,6 @@ func NewURLShortenerService(repo URLRepository, baseURL string) *URLShortenerSer
 func (s *URLShortenerService) GetOriginalURL(shortID string) (string, error) {
 	originalURL, err := s.repo.Get(shortID)
 	if err != nil {
-		// Проверяем, не является ли ошибка удалением
-		if errors.Is(err, repository.DeletedError) {
-			return "", DeletedError
-		}
 		return "", err
 	}
 	return originalURL, nil
@@ -73,7 +211,6 @@ var (
 	DuplicateError          = errors.New("url already exists")
 	FailedToSaveError       = errors.New("failed to save URL")
 	NotFoundError           = errors.New("short URL not found")
-	DeletedError            = errors.New("URL has been deleted")
 )
 
 // buildShortURL создает полный короткий URL из baseURL и shortID
